@@ -1,0 +1,13 @@
+# Rendered by the Pinpoint 311 orchestrator — imported by the host Caddyfile.
+# Wildcard TLS for *.{{ external_host.split('.', 1)[1] if '.' in external_host else external_host }} or on-demand ACME handles the cert.
+{{ external_host }} {
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:{{ tenant.backend_port }}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:{{ tenant.frontend_port }}
+	}
+}

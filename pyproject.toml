@@ -1,0 +1,33 @@
+[project]
+name = "pinpoint311-orchestrator"
+version = "0.1.0"
+description = "Control plane for centrally hosted Pinpoint 311 fleets. Provisions towns, brokers platform-managed secrets, rolls out releases, and aggregates fleet health — never resident data."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "sqlalchemy>=2.0",
+    "pydantic-settings>=2.2",
+    "httpx>=0.27",
+    "jinja2>=3.1",
+    "cryptography>=42.0",
+    "psycopg[binary]>=3.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["orchestrator", "orchestrator.api"]
+
+[tool.setuptools.package-data]
+orchestrator = ["templates/*.j2", "static/*.html"]
