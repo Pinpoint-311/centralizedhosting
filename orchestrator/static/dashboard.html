@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pinpoint 311 — Fleet</title>
+<style>
+  :root { color-scheme: light dark; --ok:#1a7f37; --bad:#b42318; --warn:#b54708; --muted:#667085; }
+  body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 72rem; padding: 0 1rem; }
+  h1 { font-size: 1.3rem; } h1 small { color: var(--muted); font-weight: 400; }
+  .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
+  .card { border: 1px solid color-mix(in srgb, currentColor 15%, transparent); border-radius: 8px; padding: .8rem 1.2rem; min-width: 8rem; }
+  .card b { display: block; font-size: 1.6rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
+  .pill { padding: .1rem .5rem; border-radius: 999px; font-size: .78rem; color: #fff; }
+  .active { background: var(--ok); } .suspended,.pending,.provisioning { background: var(--warn); }
+  .failed,.decommissioned { background: var(--bad); } .drift { color: var(--warn); font-weight: 600; }
+  input { padding: .4rem .6rem; border-radius: 6px; border: 1px solid var(--muted); width: 18rem; }
+  button { padding: .4rem .9rem; border-radius: 6px; cursor: pointer; }
+  #err { color: var(--bad); }
+</style>
+</head>
+<body>
+<h1>Pinpoint 311 Fleet <small>— control plane (metadata only, no resident data)</small></h1>
+<p>
+  <input id="token" type="password" placeholder="Panel token">
+  <button onclick="load()">Load fleet</button>
+  <span id="err"></span>
+</p>
+<div class="cards" id="cards"></div>
+<table id="towns" hidden>
+  <thead><tr>
+    <th>Town</th><th>Host</th><th>Status</th><th>Running</th><th>Target</th><th>Drift</th><th>Reachable</th><th>Last seen</th>
+  </tr></thead>
+  <tbody></tbody>
+</table>
+<script>
+async function load() {
+  const token = document.getElementById('token').value;
+  const err = document.getElementById('err');
+  err.textContent = '';
+  let resp;
+  try {
+    resp = await fetch('/api/fleet/summary', { headers: { 'X-Panel-Token': token } });
+  } catch (e) { err.textContent = String(e); return; }
+  if (!resp.ok) { err.textContent = 'HTTP ' + resp.status + ' — ' + (await resp.text()).slice(0, 200); return; }
+  const data = await resp.json();
+  const cards = document.getElementById('cards');
+  cards.innerHTML = '';
+  const stat = (label, value) => {
+    const d = document.createElement('div'); d.className = 'card';
+    const b = document.createElement('b'); b.textContent = value ?? '—';
+    d.appendChild(b); d.appendChild(document.createTextNode(label));
+    cards.appendChild(d);
+  };
+  stat('towns', data.tenants_total);
+  stat('active', (data.status_counts || {}).active || 0);
+  stat('latest release', data.latest_release);
+  stat('drifted', data.drifted);
+  const table = document.getElementById('towns');
+  const tbody = table.querySelector('tbody');
+  tbody.innerHTML = '';
+  for (const t of data.towns) {
+    const tr = document.createElement('tr');
+    const cells = [
+      t.name, t.host, null, t.running_version || '—', t.target_version || '—',
+      t.drift ? 'drift' : '', t.reachable === null ? '—' : (t.reachable ? 'yes' : 'NO'),
+      t.last_seen ? new Date(t.last_seen + 'Z').toLocaleString() : '—',
+    ];
+    cells.forEach((c, i) => {
+      const td = document.createElement('td');
+      if (i === 2) {
+        const s = document.createElement('span');
+        s.className = 'pill ' + t.status; s.textContent = t.status;
+        td.appendChild(s);
+      } else {
+        td.textContent = c;
+        if (i === 5 && c) td.className = 'drift';
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+  table.hidden = false;
+}
+</script>
+</body>
+</html>

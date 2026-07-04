@@ -1,0 +1,43 @@
+# The panel's own stack (control plane only — towns run in their own stacks).
+services:
+  panel-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: panel
+      POSTGRES_PASSWORD: ${PANEL_DB_PASSWORD:?Set PANEL_DB_PASSWORD in .env}
+      POSTGRES_DB: panel
+    volumes:
+      - panel_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U panel" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+
+  panel:
+    build: .
+    restart: unless-stopped
+    environment:
+      PANEL_DATABASE_URL: postgresql+psycopg://panel:${PANEL_DB_PASSWORD}@panel-db/panel
+      PANEL_SECRET_KEY: ${PANEL_SECRET_KEY:?Set PANEL_SECRET_KEY — encrypts brokered secrets + signs break-glass tokens}
+      PANEL_API_TOKEN: ${PANEL_API_TOKEN:?Set PANEL_API_TOKEN — operator API auth}
+      BASE_DOMAIN: ${BASE_DOMAIN:-311.example.gov}
+      TENANT_ROOT: /tenants
+      APPLY_STACKS: ${APPLY_STACKS:-false}
+    volumes:
+      - ${TENANT_ROOT_HOST:-./tenants}:/tenants
+      # Only needed with APPLY_STACKS=true — the panel is the ONE trusted
+      # component allowed to drive Docker on the managed host (the towns
+      # themselves never get the socket; see ORCHESTRATOR_PLAN.md A2).
+      # - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "127.0.0.1:${PANEL_PORT:-8100}:8100"
+    depends_on:
+      panel-db:
+        condition: service_healthy
+
+volumes:
+  panel_pg:
