@@ -32,6 +32,15 @@ def issue_grant(
     tenant = db.get(Tenant, body.tenant_id)
     if not tenant:
         raise HTTPException(404, "Tenant not found")
+    # Signed with the town's provisioning token (already shared with the
+    # instance) — the app verifies it locally; see plan A8.
+    from orchestrator.provisioner import get_platform_secret
+
+    signing_key = get_platform_secret(db, tenant.id, "PROVISIONING_TOKEN")
+    if not signing_key:
+        raise HTTPException(
+            409, "Tenant has no PROVISIONING_TOKEN yet — provision it first"
+        )
     grant = BreakGlassGrant(
         tenant_id=tenant.id,
         actor=body.actor,
@@ -40,7 +49,9 @@ def issue_grant(
     )
     db.add(grant)
     db.flush()
-    token = mint_break_glass_token(tenant.id, body.actor, grant.token_id, grant.expires_at)
+    token = mint_break_glass_token(
+        tenant.id, body.actor, grant.token_id, grant.expires_at, signing_key
+    )
     audit.record(
         db, operator, "breakglass.issued", tenant.id,
         grant_id=grant.id, grantee=body.actor, reason=body.reason,

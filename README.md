@@ -115,12 +115,26 @@ may drive Docker, the towns never get the socket).
 - **Everything audited** — provisioning, rollouts, secrets, lifecycle,
   break-glass: `GET /api/audit`.
 
+Break-glass tokens are HMAC-signed with the target town's own
+`PROVISIONING_TOKEN` (a secret that town instance already holds), so the app
+verifies them locally with no extra key distribution and a token minted for
+one town is useless against another. The app-side exchange endpoint is
+`POST /api/provisioning/break-glass` (managed mode only).
+
+## Host setup
+
+`deploy/host-Caddyfile` is the template for the managed host's front proxy:
+one Caddy imports every rendered `tenants/_caddy/*.caddy` site block. Reload
+Caddy after provisioning or decommissioning a town.
+
 ## Status / next steps
 
+- The app-side Part A hooks (A1–A5, A8 + suspend/resume) are implemented in
+  the app repo (`app/api/provisioning.py`, `app/api/telemetry.py`, health
+  stamping, managed-mode gates); this panel speaks that contract via
+  `orchestrator/app_client.py`.
 - Cloud drivers (real KMS key creation, bucket creation, DNS records, email
   delivery of onboarding links) are recorded as resource references at their
   seams in `orchestrator/provisioner.py` — wire per-state providers there.
-- The app-side Part A hooks (A1–A5, A8) land in the app repo; this panel
-  already speaks that contract via `orchestrator/app_client.py`.
 - Graduate `orchestrator/stack.py` from Compose rendering to Helm/GitOps for
   the Kubernetes target.
