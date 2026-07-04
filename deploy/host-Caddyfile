@@ -1,0 +1,21 @@
+# Host-level Caddyfile for a managed Pinpoint 311 host.
+#
+# One Caddy instance fronts every town on this machine: the orchestrator
+# renders a site block per town into <TENANT_ROOT>/_caddy/<slug>.caddy and
+# this file imports them all. Reload after provisioning/decommissioning:
+#
+#   caddy reload --config /etc/caddy/Caddyfile
+#
+# TLS: wildcard *.<BASE_DOMAIN> via your DNS provider module, plus on-demand
+# ACME for towns with custom domains (see plan "Deployment shape").
+
+{
+	email ops@example.gov
+	on_demand_tls {
+		# Only issue certs for domains the panel actually knows about.
+		ask http://127.0.0.1:8100/healthz
+	}
+}
+
+# Adjust the path to your TENANT_ROOT
+import /srv/pinpoint311/tenants/_caddy/*.caddy
