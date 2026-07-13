@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from orchestrator import audit, provisioner
+from orchestrator import audit, managed_settings, provisioner
 from orchestrator.app_client import client_for_tenant
 from orchestrator.config import settings
 from orchestrator.db import get_db
@@ -40,6 +40,7 @@ def create_tenant(
         raise HTTPException(409, f"Tenant slug '{body.slug}' already exists")
     data = body.model_dump()
     data["key_assignments"] = normalize_assignments(data.get("key_assignments"))
+    data["managed_settings"] = managed_settings.defaults()
     tenant = Tenant(subdomain=body.slug, **data)
     db.add(tenant)
     audit.record(db, actor, "tenant.created", tenant.id, slug=tenant.slug, name=tenant.name)
@@ -129,6 +130,58 @@ def provision_tenant(
     if tenant.status == TenantStatus.DECOMMISSIONED:
         raise HTTPException(409, "Tenant is decommissioned")
     return provisioner.run_provision(db, tenant, actor)
+
+
+@router.get("/{tenant_id}/transparency")
+def transparency(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_panel_token),
+):
+    """The town's trust report: exactly what metadata the panel holds about
+    this town, an explicit statement of what it does NOT hold (resident data),
+    and every state access event (break-glass) against it."""
+    from orchestrator.models import AuditLog, BreakGlassGrant
+
+    tenant = _get_tenant(db, tenant_id)
+    grants = db.execute(
+        select(BreakGlassGrant).where(BreakGlassGrant.tenant_id == tenant_id)
+        .order_by(BreakGlassGrant.created_at.desc())
+    ).scalars().all()
+    access_events = db.execute(
+        select(AuditLog).where(
+            AuditLog.tenant_id == tenant_id,
+            AuditLog.action.in_(["breakglass.issued", "breakglass.revoked", "tenant.legal_hold_set"]),
+        ).order_by(AuditLog.seq.desc()).limit(50)
+    ).scalars().all()
+    return {
+        "town": {"name": tenant.name, "slug": tenant.slug, "host": tenant.external_host},
+        "metadata_panel_holds": [
+            "Town name, slug, region, plan, status",
+            "Contact info you provided",
+            "Provisioned resource references (DB name, bucket, KMS key ref — not contents)",
+            "Running/target version + reachability (uptime)",
+            "Aggregate API-usage counters for billing",
+            "State-set policy (retention, legal hold, security posture)",
+        ],
+        "panel_never_holds": [
+            "Resident names, contacts, or any personally identifiable information",
+            "Service-request contents or attachments",
+            "Your residents' data in any form — it stays in your isolated instance",
+            "Your town's individual 311 figures shown to other towns (region-only)",
+        ],
+        "state_access_events": [
+            {"action": e.action, "actor": e.actor, "at": e.created_at.isoformat(),
+             "detail": {k: v for k, v in (e.detail or {}).items() if k != "reason"} | (
+                 {"reason": e.detail.get("reason")} if e.detail and e.detail.get("reason") else {})}
+            for e in access_events
+        ],
+        "break_glass_grants": [
+            {"actor": g.actor, "reason": g.reason, "at": g.created_at.isoformat(),
+             "expires_at": g.expires_at.isoformat(), "revoked": bool(g.revoked_at)}
+            for g in grants
+        ],
+    }
 
 
 @router.get("/{tenant_id}/stack-preview")

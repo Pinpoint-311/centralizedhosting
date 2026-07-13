@@ -23,6 +23,8 @@ ALLOWED_TOP_LEVEL_KEYS = {
     "cost",
     "queue_depth",
     "status",
+    "request_stats",  # aggregate 311 counts (metadata only): totals + by_category
+    "legal_hold",     # town's own legal-hold flag (shared hold: effective = state OR town)
 }
 
 _PII_KEY_PATTERN = re.compile(

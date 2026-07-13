@@ -14,11 +14,8 @@ import {
   LogOut,
   Menu,
   X,
-  Sun,
-  Moon,
 } from 'lucide-react'
 import { api, clearToken } from '../lib/api'
-import { useTheme } from '../lib/session'
 import { Logo } from './Logo'
 
 const NAV = [
@@ -37,7 +34,6 @@ const NAV = [
 export function Shell({ children, onLogout }: { children: React.ReactNode; onLogout: () => void }) {
   const [open, setOpen] = useState(false)
   const [alertCount, setAlertCount] = useState(0)
-  const [theme, setTheme] = useTheme()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -87,14 +83,6 @@ export function Shell({ children, onLogout }: { children: React.ReactNode; onLog
       </nav>
 
       <div className="p-3 border-t border-white/10 space-y-1">
-        <button
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/60 hover:bg-white/5 hover:text-white transition-colors"
-          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-        >
-          {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-          {theme === 'dark' ? 'Light theme' : 'Dark theme'}
-        </button>
         <button
           onClick={logout}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/60 hover:bg-white/5 hover:text-white transition-colors"

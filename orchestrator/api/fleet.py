@@ -17,6 +17,14 @@ from orchestrator.telemetry import sanitize_telemetry
 router = APIRouter(prefix="/api/fleet", tags=["fleet"])
 
 
+def _operational_only(payload: dict | None) -> dict | None:
+    """Drop resident-derived 311 analytics from a per-town telemetry payload —
+    those are only ever exposed as region aggregates, never town-by-town."""
+    if not payload:
+        return payload
+    return {k: v for k, v in payload.items() if k not in ("request_stats",)}
+
+
 def _latest_snapshots(db: Session) -> dict[str, TelemetrySnapshot]:
     latest: dict[str, TelemetrySnapshot] = {}
     for snap in db.execute(
@@ -100,7 +108,9 @@ def fleet_summary(db: Session = Depends(get_db), _: str = Depends(require_panel_
                 ),
                 "reachable": snap.reachable if snap else None,
                 "last_seen": snap.collected_at.isoformat() if snap else None,
-                "telemetry": snap.payload if snap else None,
+                # Operational telemetry only — never surface a town's 311/resident
+                # analytics per-town (request_stats). Those are region-only.
+                "telemetry": _operational_only(snap.payload) if snap else None,
             }
         )
 

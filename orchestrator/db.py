@@ -24,6 +24,15 @@ def init_db() -> None:
 
     Base.metadata.create_all(engine)
 
+    # Seed the canonical service taxonomy (idempotent).
+    from orchestrator import taxonomy
+
+    db = SessionLocal()
+    try:
+        taxonomy.seed(db)
+    finally:
+        db.close()
+
 
 def get_db():
     db: Session = SessionLocal()

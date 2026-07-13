@@ -68,6 +68,17 @@ class AppClient:
         resp.raise_for_status()
         return resp.json()
 
+    def set_managed_settings(self, settings: dict) -> dict[str, Any]:
+        """Push the state-set policy (retention, legal hold, security posture)
+        the town applies + shows read-only in managed mode."""
+        resp = self._client.post(
+            "/api/provisioning/managed-settings",
+            headers={PROVISIONING_TOKEN_HEADER: self.provisioning_token or ""},
+            json={"settings": settings},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     # ---- A5: PII-safe telemetry ---------------------------------------------
     def telemetry(self) -> dict[str, Any]:
         resp = self._client.get(
