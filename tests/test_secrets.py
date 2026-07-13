@@ -25,9 +25,10 @@ def test_backup_prefix_accepted(client):
     assert resp.status_code == 201
 
 
-def test_tenant_managed_keys_never_touch_the_panel(client):
+def test_town_owned_keys_never_touch_the_panel(client):
     tenant = make_tenant(client)
-    for key in ("GOOGLE_MAPS_API_KEY", "OPENAI_API_KEY", "SMTP_PASSWORD", "AUTH0_CLIENT_SECRET"):
+    # identity + SMS default to the town; a non-catalog key is never brokerable.
+    for key in ("AUTH0_CLIENT_SECRET", "TWILIO_AUTH_TOKEN", "OPENAI_API_KEY"):
         resp = client.put(
             f"/api/tenants/{tenant['id']}/secrets/{key}",
             json={"value": "nope"},
@@ -35,6 +36,30 @@ def test_tenant_managed_keys_never_touch_the_panel(client):
         )
         assert resp.status_code == 422, key
         assert "town's responsibility" in resp.json()["detail"]
+
+
+def test_shared_key_is_redirected_to_the_pool(client):
+    tenant = make_tenant(client)
+    # SMTP defaults to state_shared — its value belongs in the shared pool,
+    # not a per-town write.
+    resp = client.put(
+        f"/api/tenants/{tenant['id']}/secrets/SMTP_PASSWORD",
+        json={"value": "nope"},
+        headers=HEADERS,
+    )
+    assert resp.status_code == 422
+    assert "shared state credential" in resp.json()["detail"]
+
+
+def test_per_town_state_key_is_brokered(client):
+    tenant = make_tenant(client)
+    # Maps defaults to state_per_town — a per-town value is accepted.
+    resp = client.put(
+        f"/api/tenants/{tenant['id']}/secrets/GOOGLE_MAPS_API_KEY",
+        json={"value": "AIza-per-town"},
+        headers=HEADERS,
+    )
+    assert resp.status_code == 201
 
 
 def test_secret_values_are_never_returned_and_encrypted_at_rest(client, db):

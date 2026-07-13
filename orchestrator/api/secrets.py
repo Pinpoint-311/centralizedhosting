@@ -6,7 +6,11 @@ from sqlalchemy.orm import Session
 
 from orchestrator import audit
 from orchestrator.db import get_db
-from orchestrator.key_catalog import STATE, normalize_assignments, service_for_key
+from orchestrator.key_catalog import (
+    STATE_PER_TOWN,
+    STATE_SHARED,
+    owner_of_key,
+)
 from orchestrator.models import PlatformSecret, Tenant
 from orchestrator.provisioner import set_platform_secret
 from orchestrator.schemas import SecretOut, SecretWrite
@@ -48,17 +52,23 @@ def put_secret(
     tenant = _tenant(db, tenant_id)
     key = key_name.strip().upper()
 
-    # The panel brokers a key only if it is infrastructure (always state-owned)
-    # OR it belongs to an assignable service this town has assigned to "state".
-    # Otherwise the town owns it and enters it in its own instance.
+    # The panel stores a per-town value only for infrastructure keys (always
+    # state-owned) or assignable-service keys this town set to "state_per_town".
+    # Shared keys live in the state credential pool; town-owned keys never
+    # touch the panel.
     if not is_platform_managed(key):
-        service = service_for_key(key)
-        assignments = normalize_assignments(tenant.key_assignments)
-        if not service or assignments.get(service["id"]) != STATE:
+        owner = owner_of_key(tenant.key_assignments, key)
+        if owner == STATE_SHARED:
             raise HTTPException(
                 422,
-                f"'{key}' is the town's responsibility — assign its service to the "
-                "state on the key-responsibility matrix before brokering it here.",
+                f"'{key}' is a shared state credential — set it once under State "
+                "credentials, not per town.",
+            )
+        if owner != STATE_PER_TOWN:
+            raise HTTPException(
+                422,
+                f"'{key}' is the town's responsibility — set its service to "
+                "'State · per-town' on the key-responsibility matrix to broker it here.",
             )
     set_platform_secret(db, tenant_id, key, body.value)
     audit.record(db, actor, "secret.written", tenant_id, key_name=key)

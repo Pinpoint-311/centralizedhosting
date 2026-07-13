@@ -14,7 +14,7 @@ import { clearToken } from '../lib/api'
 import { Logo } from './Logo'
 
 const NAV = [
-  { to: '/', label: 'Fleet Overview', icon: LayoutDashboard, end: true },
+  { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: '/towns', label: 'Municipalities', icon: Building2 },
   { to: '/releases', label: 'Releases', icon: Rocket },
   { to: '/audit', label: 'Audit Log', icon: ScrollText },

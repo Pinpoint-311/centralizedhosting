@@ -6,7 +6,16 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from orchestrator import __version__
-from orchestrator.api import audit_api, breakglass, fleet, keys, releases, secrets, tenants
+from orchestrator.api import (
+    audit_api,
+    breakglass,
+    fleet,
+    keys,
+    releases,
+    secrets,
+    state_credentials,
+    tenants,
+)
 from orchestrator.db import init_db
 
 
@@ -31,6 +40,7 @@ def create_app() -> FastAPI:
     app.include_router(tenants.router)
     app.include_router(secrets.router)
     app.include_router(keys.router)
+    app.include_router(state_credentials.router)
     app.include_router(releases.router)
     app.include_router(fleet.router)
     app.include_router(breakglass.router)

@@ -23,7 +23,7 @@ source.
 | **B5** Secrets brokering | Platform-managed keys only, encrypted at rest, write-only API; tenant-managed keys never touch the panel | `orchestrator/secrets_policy.py`, `orchestrator/api/secrets.py` |
 | **B6** Break-glass + compliance | Time-boxed signed state-ops tokens + central audit of every action | `orchestrator/api/breakglass.py`, `orchestrator/audit.py` |
 | **Key responsibility** | Per-town matrix of who provides each external API key (state brokers it, or the town owns it) — set once, honored by the broker + provisioner | `orchestrator/key_catalog.py`, `orchestrator/api/keys.py` |
-| **Panel UI** | Premium React control-plane matching the Pinpoint app design (fleet dashboard, add-town wizard, key matrix, releases, audit) | `panel-ui/`, served at `/` |
+| **Panel UI** | Premium React control-plane matching the Pinpoint app design (program overview, add-town wizard, key matrix, releases, audit) | `panel-ui/`, served at `/` |
 
 ## Panel UI
 
@@ -31,13 +31,14 @@ A React + Vite + Tailwind SPA (`panel-ui/`) matching the Pinpoint app's design
 system — indigo/glassmorphism, framer-motion, recharts. It covers the full
 operator workflow:
 
-- **Fleet Overview** — status/version charts, drift, per-town health, telemetry poll.
+- **Program Overview** — status/version charts, drift, per-town health, telemetry poll.
 - **Municipalities** — searchable list + a 5-step **Add municipality** wizard
   (identity → subdomain-or-custom-domain → contact → API-key matrix → review).
 - **Town detail** — lifecycle (provision / suspend / resume / decommission),
   editable domain + contact, the **key-responsibility matrix** with inline
-  brokered-secret entry, provisioning-job timeline, and break-glass issuance.
+  per-town brokered-secret entry, provisioning-job timeline, and break-glass issuance.
 - **Releases** — publish versions and drive canary → promote / rollback.
+- **Settings** — program identity + the **shared state credential** pool.
 - **Audit** — the central compliance trail.
 
 The app is gated by the panel operator token (stored client-side, sent as
@@ -57,16 +58,29 @@ up` ships the full panel with no separate step.
 ## Key responsibility matrix
 
 The state decides, per town, who provides each **assignable** API key —
-Maps, AI, translation, SMTP, SMS, staff SSO, error monitoring:
+Maps, AI, translation, SMTP, SMS, staff SSO, error monitoring — in one of three
+modes:
 
-- **State provides** → the panel brokers the credential (encrypted at rest) and
-  injects it into the town's env at provision time.
-- **Town provides** → the town enters it in its own instance; it never touches
-  the panel (the secret-broker endpoint refuses it with `422`).
+- **Town** → the town enters it in its own instance; it never touches the panel
+  (the per-town secret-broker endpoint refuses it with `422`).
+- **State · shared** → the state enters ONE credential in the shared pool
+  (`/api/state-credentials`, Settings → State credentials) and every town set to
+  shared plugs into that same value at provision time — no per-town re-entry.
+  Best for services that are naturally one endpoint (a state SSO tenant, mail
+  relay, error-monitoring org).
+- **State · per-town** → state-owned but a distinct value per town, entered per
+  town. Best where billing attribution, quota isolation, and blast-radius
+  matter (Maps, AI).
+
+Per-service defaults tell a coherent story: **SSO and SMS default to the town**
+(their IdP, their number/brand are town-specific) but the state *can* help by
+offering a shared tenant/account; **Maps and AI default to per-town**;
+**translation, SMTP, and Sentry default to shared**.
 
 **Infrastructure keys** (`SECRET_KEY`, DB creds, KMS refs, backups, domain) are
 always state-owned and shown locked. Set the matrix once at add-town time or
-edit it later; `orchestrator/key_catalog.py` holds the catalog + defaults.
+edit it later; `orchestrator/key_catalog.py` holds the catalog + defaults and
+`StateCredential` holds the shared pool.
 
 Deployment shape is the plan's **MVP shortcut**: the panel renders one Docker
 Compose stack per town under `TENANT_ROOT` (plus a Caddy site block for the
@@ -94,7 +108,7 @@ watchtower** — upgrades come only from this panel.
 
 ```bash
 pip install .[dev]
-pytest                      # 46 tests
+pytest                      # 52 tests
 
 # build the panel UI (or rely on the Docker multi-stage build)
 cd panel-ui && npm install && npm run build && cd ..

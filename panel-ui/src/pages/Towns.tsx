@@ -18,7 +18,7 @@ import {
   Textarea,
 } from '../components/ui'
 import { PageHeader } from '../components/Shell'
-import { KeyMatrix } from '../components/KeyMatrix'
+import { KeyMatrix, OWNER_META } from '../components/KeyMatrix'
 import { useToast } from '../components/Toast'
 
 const REGIONS = [
@@ -390,20 +390,26 @@ function AddTownWizard({ onClose, onCreated }: { onClose: () => void; onCreated:
           />
           <ReviewRow label="Region · Plan" value={`${d.region} · ${d.plan}`} />
           {d.contact_name && <ReviewRow label="Contact" value={`${d.contact_name}${d.contact_title ? `, ${d.contact_title}` : ''}`} />}
-          <div>
-            <div className="text-sm text-white/50 mb-2">State-provided API keys</div>
-            <div className="flex flex-wrap gap-1.5">
-              {catalog.assignable
-                .filter((s) => (d.key_assignments[s.id] || s.default_owner) === 'state')
-                .map((s) => (
-                  <Badge key={s.id} variant="info">
-                    {s.label}
-                  </Badge>
-                ))}
-              {catalog.assignable.filter((s) => (d.key_assignments[s.id] || s.default_owner) === 'state').length === 0 && (
-                <span className="text-white/40 text-sm">None — every optional key is the town's responsibility.</span>
-              )}
-            </div>
+          <div className="space-y-3">
+            {(['state_shared', 'state_per_town', 'town'] as const).map((mode) => {
+              const svcs = catalog.assignable.filter(
+                (s) => (d.key_assignments[s.id] || s.default_owner) === mode,
+              )
+              if (svcs.length === 0) return null
+              const meta = OWNER_META[mode]
+              return (
+                <div key={mode}>
+                  <div className="text-sm text-white/50 mb-2">{meta.label}</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {svcs.map((s) => (
+                      <Badge key={s.id} variant={mode === 'town' ? 'default' : 'info'}>
+                        {s.label}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
           </div>
           <p className="text-white/40 text-sm">
             Creating the record does not deploy anything yet — you'll trigger provisioning from the

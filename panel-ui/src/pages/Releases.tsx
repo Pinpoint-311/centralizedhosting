@@ -51,7 +51,7 @@ export function Releases() {
     setBusy(id)
     try {
       await api.promoteRollout(id)
-      toast.push('Rollout promoted to full fleet')
+      toast.push('Rollout promoted to all municipalities')
       await load()
     } catch (e) {
       toast.push((e as Error).message, 'error')
@@ -78,7 +78,7 @@ export function Releases() {
     <div>
       <PageHeader
         title="Releases"
-        subtitle="Publish app versions and roll them out fleet-wide with a canary + automatic rollback."
+        subtitle="Publish app versions and roll them out to every municipality with a canary + automatic rollback."
         actions={
           <Button onClick={() => setShowPublish(true)} leftIcon={<Plus className="w-4 h-4" />}>
             Publish release
@@ -142,7 +142,7 @@ export function Releases() {
                     <div className="flex gap-2">
                       {ro.status === 'canary_passed' && (
                         <Button size="sm" onClick={() => promote(ro.id)} isLoading={busy === ro.id} leftIcon={<PlayCircle className="w-4 h-4" />}>
-                          Promote to fleet
+                          Promote to all
                         </Button>
                       )}
                       {['canary_passed', 'completed', 'promoting'].includes(ro.status) && (

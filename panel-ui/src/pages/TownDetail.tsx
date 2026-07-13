@@ -320,7 +320,8 @@ function KeysTab({ tenant, onChanged }: { tenant: Tenant; onChanged: () => void 
 
   if (!catalog) return <Spinner />
 
-  const stateServices = catalog.assignable.filter((s) => assignments[s.id] === 'state')
+  const perTownServices = catalog.assignable.filter((s) => assignments[s.id] === 'state_per_town')
+  const sharedServices = catalog.assignable.filter((s) => assignments[s.id] === 'state_shared')
 
   return (
     <div className="space-y-4">
@@ -334,9 +335,12 @@ function KeysTab({ tenant, onChanged }: { tenant: Tenant; onChanged: () => void 
           )}
         </div>
         <p className="text-sm text-white/50 mb-4">
-          Set once. State-provided keys are brokered by the panel and injected when the town is
-          provisioned; town-owned keys are entered by the town in its own instance and never touch
-          the panel.
+          Set once. <b>Town</b> keys are entered by the town in its own instance.{' '}
+          <b>State · shared</b> keys use one credential you enter once under{' '}
+          <Link to="/settings" className="text-indigo-300 hover:text-indigo-200">
+            State credentials
+          </Link>
+          . <b>State · per-town</b> keys take a distinct value per town, entered below.
         </p>
         <KeyMatrix
           catalog={catalog}
@@ -348,13 +352,33 @@ function KeysTab({ tenant, onChanged }: { tenant: Tenant; onChanged: () => void 
         />
       </Card>
 
-      {stateServices.length > 0 && (
+      {perTownServices.length > 0 && (
         <BrokeredSecrets
           tenantId={tenant.id}
-          services={stateServices}
+          services={perTownServices}
           secrets={secrets}
           onChange={() => api.listSecrets(tenant.id).then(setSecrets)}
         />
+      )}
+
+      {sharedServices.length > 0 && (
+        <Card>
+          <h3 className="font-semibold text-white mb-1">Shared state credentials in use</h3>
+          <p className="text-sm text-white/50 mb-3">
+            These services plug into the shared state pool. Set their values once under{' '}
+            <Link to="/settings" className="text-indigo-300 hover:text-indigo-200">
+              Settings → State credentials
+            </Link>
+            .
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {sharedServices.map((s) => (
+              <Badge key={s.id} variant="info">
+                {s.label}
+              </Badge>
+            ))}
+          </div>
+        </Card>
       )}
     </div>
   )
@@ -395,10 +419,10 @@ function BrokeredSecrets({
 
   return (
     <Card>
-      <h3 className="font-semibold text-white mb-1">State-provided credentials</h3>
+      <h3 className="font-semibold text-white mb-1">Per-town state credentials</h3>
       <p className="text-sm text-white/50 mb-4">
-        Enter the values the state supplies for the services above. Stored encrypted at rest;
-        write-only (never displayed back).
+        A distinct value for this town, for the services set to <b>State · per-town</b>. Stored
+        encrypted at rest; write-only (never displayed back).
       </p>
       <div className="space-y-3">
         {allKeys.map(({ key, label }) => (
