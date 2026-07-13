@@ -29,12 +29,27 @@ def submit_request(body: TownRequestCreate, db: Session = Depends(get_db)):
     PUBLIC_REQUESTS_ENABLED; put rate-limiting/CAPTCHA in front in production."""
     if not settings.public_requests_enabled:
         raise HTTPException(404, "Public request intake is not enabled")
+    # Honeypot: bots fill hidden fields. Accept silently so they don't retry.
+    if body.website:
+        return {
+            "id": "", "ref_code": "RECEIVED", "name": body.name, "requested_slug": None,
+            "county": None, "contact_name": None, "contact_email": None, "contact_phone": None,
+            "message": None, "details": {}, "key_preferences": {}, "status": "pending",
+            "tenant_id": None, "created_at": utcnow(), "decided_at": None, "decided_by": None,
+        }
+    import secrets as _secrets
+
     req = TownRequest(
+        ref_code="REQ-" + _secrets.token_hex(3).upper(),
         name=body.name,
         requested_slug=(_slugify(body.requested_slug) if body.requested_slug else None),
+        county=body.county,
         contact_name=body.contact_name,
         contact_email=body.contact_email,
+        contact_phone=body.contact_phone,
         message=body.message,
+        details=body.details or {},
+        key_preferences={k: v for k, v in (body.key_preferences or {}).items()},
     )
     db.add(req)
     db.commit()
@@ -72,12 +87,20 @@ def approve_request(
     if db.execute(select(Tenant).where(Tenant.slug == slug)).scalar_one_or_none():
         raise HTTPException(409, f"Slug '{slug}' already exists")
 
+    from orchestrator import managed_settings
+    from orchestrator.key_catalog import normalize_assignments
+
     tenant = Tenant(
         name=req.name,
         slug=slug,
         subdomain=slug,
+        county=req.county,
         contact_name=req.contact_name,
         contact_email=req.contact_email,
+        contact_phone=req.contact_phone,
+        # carry the town's stated key preferences into the responsibility matrix
+        key_assignments=normalize_assignments(req.key_preferences),
+        managed_settings=managed_settings.defaults(),
     )
     db.add(tenant)
     db.flush()

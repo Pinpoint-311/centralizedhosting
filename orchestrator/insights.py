@@ -200,6 +200,105 @@ def evaluate_alerts(db: Session) -> list[Alert]:
     return new
 
 
+def _canonical_for(db: Session, tenant_id: str) -> dict[str, str]:
+    from orchestrator.models import CategoryMapping
+
+    return {
+        m.local_key.lower(): m.canonical_code
+        for m in db.execute(
+            select(CategoryMapping).where(CategoryMapping.tenant_id == tenant_id)
+        ).scalars()
+    }
+
+
+def _town_stats(snap) -> dict:
+    rs = (snap.payload.get("request_stats") if snap and snap.payload else None) or {}
+    return {
+        "total": int(rs.get("total", 0) or 0),
+        "open": int(rs.get("open", 0) or 0),
+        "closed": int(rs.get("closed", 0) or 0),
+        "avg_close_hours": rs.get("avg_close_hours"),
+        "by_category": rs.get("by_category", {}) or {},
+    }
+
+
+def analytics(db: Session, min_cell: int | None = None, region_label: str = "region") -> dict:
+    """311 / resident-derived analytics — REGION-LEVEL ONLY, for everyone.
+
+    Deliberately never returns a single town's 311 figures. Per-town aggregate
+    counts are used only as an internal input to compute region rollups; the
+    output exposes region + program-wide aggregates. Regions with fewer than
+    `min_cell` contributing towns are folded into a combined "Other regions"
+    bucket (still counted program-wide) so no region maps to one town. This is
+    the impenetrable-wall guarantee: the state sees county-by-county, a town
+    sees only its own instance (never through the panel), and no town's numbers
+    are ever attributable to it here.
+    """
+    from orchestrator.config import settings
+
+    min_cell = settings.analytics_min_cell if min_cell is None else min_cell
+    tenants = db.execute(select(Tenant)).scalars().all()
+    snaps = _latest_snapshots(db)
+
+    by_category: dict[str, int] = defaultdict(int)
+    region_acc: dict[str, dict] = defaultdict(lambda: {"total": 0, "closed": 0, "towns": 0})
+    program_total = 0
+    unmapped = 0
+
+    for t in tenants:
+        stats = _town_stats(snaps.get(t.id))
+        mapping = _canonical_for(db, t.id)
+        for local, count in stats["by_category"].items():
+            key = str(local).lower()
+            code = mapping.get(key, "other")
+            if code == "other" and key not in mapping:
+                unmapped += int(count or 0)
+            by_category[code] += int(count or 0)
+        program_total += stats["total"]
+        region = t.county or "Unassigned"
+        region_acc[region]["total"] += stats["total"]
+        region_acc[region]["closed"] += stats["closed"]
+        region_acc[region]["towns"] += 1
+
+    # Fold sub-threshold regions into a combined bucket so none maps to one town.
+    combined = {"total": 0, "closed": 0, "towns": 0}
+    regions = []
+    for region, agg in region_acc.items():
+        if agg["towns"] < min_cell:
+            combined["total"] += agg["total"]
+            combined["closed"] += agg["closed"]
+            combined["towns"] += agg["towns"]
+            continue
+        rate = round(agg["closed"] / agg["total"] * 100, 1) if agg["total"] else None
+        regions.append({
+            f"{region_label}": region, "towns": agg["towns"],
+            "total_requests": agg["total"], "close_rate_percent": rate,
+        })
+    if combined["towns"] >= min_cell:
+        rate = round(combined["closed"] / combined["total"] * 100, 1) if combined["total"] else None
+        regions.append({
+            f"{region_label}": "Other (small regions combined)", "towns": combined["towns"],
+            "total_requests": combined["total"], "close_rate_percent": rate,
+        })
+        hidden_towns = 0
+    else:
+        hidden_towns = combined["towns"]  # too few even combined -> not shown at all
+
+    regions.sort(key=lambda r: -r["total_requests"])
+    return {
+        "program_total_requests": program_total,
+        "by_canonical_category": dict(sorted(by_category.items(), key=lambda kv: -kv[1])),
+        "regions": regions,
+        "unmapped_requests": unmapped,
+        "min_cell": min_cell,
+        "towns_withheld_for_privacy": hidden_towns,
+        "note": (
+            "Region-level only. Individual municipalities are never shown; regions "
+            "with too few towns are combined or withheld to prevent identification."
+        ),
+    }
+
+
 def _notify(alerts: list[Alert]) -> None:
     """Best-effort webhook notification (Slack-compatible JSON)."""
     from orchestrator.config import settings

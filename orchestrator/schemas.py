@@ -22,6 +22,7 @@ class TenantCreate(TenantContact):
     slug: str
     custom_domain: str | None = None
     region: str = "us"
+    county: str | None = None
     plan: str = "standard"
     tags: list[str] = Field(default_factory=list)
     # Optional initial key-responsibility overrides (service_id -> state|town)
@@ -42,6 +43,7 @@ class TenantUpdate(TenantContact):
     name: str | None = Field(default=None, max_length=255)
     custom_domain: str | None = None
     region: str | None = None
+    county: str | None = None
     plan: str | None = None
     tags: list[str] | None = None
 
@@ -60,25 +62,62 @@ class BulkResultRow(BaseModel):
 class TownRequestCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     requested_slug: str | None = None
+    county: str | None = None
     contact_name: str | None = None
     contact_email: str | None = None
+    contact_phone: str | None = None
     message: str | None = None
+    # Richer intake — all optional, stored on details/key_preferences.
+    details: dict = Field(default_factory=dict)
+    key_preferences: dict[str, str] = Field(default_factory=dict)
+    # Simple anti-spam honeypot: must be empty.
+    website: str | None = None
 
 
 class TownRequestOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    ref_code: str | None
     name: str
     requested_slug: str | None
+    county: str | None
     contact_name: str | None
     contact_email: str | None
+    contact_phone: str | None
     message: str | None
+    details: dict
+    key_preferences: dict
     status: str
     tenant_id: str | None
     created_at: datetime
     decided_at: datetime | None
     decided_by: str | None
+
+
+class ManagedSettingsUpdate(BaseModel):
+    settings: dict
+
+
+class AnnouncementCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    body: str | None = None
+    severity: str = Field(default="info", pattern="^(info|maintenance|incident)$")
+    active: bool = True
+
+
+class AnnouncementOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    title: str
+    body: str | None
+    severity: str
+    active: bool
+    starts_at: datetime | None
+    ends_at: datetime | None
+    created_at: datetime
+    created_by: str | None
 
 
 class AlertOut(BaseModel):
@@ -114,7 +153,9 @@ class TenantOut(BaseModel):
     notes: str | None
     latitude: float | None
     longitude: float | None
+    county: str | None
     tags: list = []
+    managed_settings: dict = {}
     key_assignments: dict = {}
     running_version: str | None
     target_version: str | None

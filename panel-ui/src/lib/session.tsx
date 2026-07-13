@@ -23,24 +23,3 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const can = (min: Role) => (who ? RANK[who.role] >= RANK[min] : true)
   return <Ctx.Provider value={{ who, can }}>{children}</Ctx.Provider>
 }
-
-// ---- theme ------------------------------------------------------------------
-
-const THEME_KEY = 'pp311_theme'
-type Theme = 'dark' | 'light'
-
-export function useTheme(): [Theme, (t: Theme) => void] {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    const saved = localStorage.getItem(THEME_KEY) as Theme | null
-    if (saved) return saved
-    return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
-  })
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-  }, [theme])
-  const setTheme = (t: Theme) => {
-    localStorage.setItem(THEME_KEY, t)
-    setThemeState(t)
-  }
-  return [theme, setTheme]
-}

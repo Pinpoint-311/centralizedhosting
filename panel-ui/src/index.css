@@ -96,54 +96,6 @@ select.glass-input option {
   color: white;
 }
 
-/* -------------------------------------------------------------------------
-   Light theme. The UI is built dark-first with Tailwind literal colors
-   (text-white, white/opacity borders, glass surfaces), so light mode remaps
-   those surfaces + the common text/border utilities under [data-theme=light].
-   ------------------------------------------------------------------------- */
-:root[data-theme='light'] body {
-  background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 50%, #eef2ff 100%);
-  color: #1e1b4b;
-}
-:root[data-theme='light'] .glass,
-:root[data-theme='light'] .glass-card {
-  background: rgba(255, 255, 255, 0.72);
-  border-color: rgba(30, 27, 75, 0.1);
-  box-shadow: 0 4px 24px rgba(30, 27, 75, 0.06);
-}
-:root[data-theme='light'] .glass-input {
-  background: rgba(255, 255, 255, 0.85);
-  border-color: rgba(30, 27, 75, 0.15);
-  color: #1e1b4b;
-}
-:root[data-theme='light'] .glass-input::placeholder {
-  color: rgba(30, 27, 75, 0.45);
-}
-:root[data-theme='light'] select.glass-input option {
-  background: #ffffff;
-  color: #1e1b4b;
-}
-:root[data-theme='light'] aside,
-:root[data-theme='light'] header {
-  background: rgba(255, 255, 255, 0.75) !important;
-  border-color: rgba(30, 27, 75, 0.1) !important;
-}
-/* Text + border utility remap (the palette used across the app) */
-:root[data-theme='light'] .text-white { color: #1e1b4b !important; }
-:root[data-theme='light'] .text-white\/90 { color: rgba(30, 27, 75, 0.92) !important; }
-:root[data-theme='light'] .text-white\/80 { color: rgba(30, 27, 75, 0.85) !important; }
-:root[data-theme='light'] .text-white\/70 { color: rgba(30, 27, 75, 0.72) !important; }
-:root[data-theme='light'] .text-white\/60 { color: rgba(30, 27, 75, 0.62) !important; }
-:root[data-theme='light'] .text-white\/50 { color: rgba(30, 27, 75, 0.52) !important; }
-:root[data-theme='light'] .text-white\/40 { color: rgba(30, 27, 75, 0.42) !important; }
-:root[data-theme='light'] .text-white\/30 { color: rgba(30, 27, 75, 0.32) !important; }
-:root[data-theme='light'] .border-white\/10 { border-color: rgba(30, 27, 75, 0.1) !important; }
-:root[data-theme='light'] .border-white\/15 { border-color: rgba(30, 27, 75, 0.14) !important; }
-:root[data-theme='light'] .border-white\/20 { border-color: rgba(30, 27, 75, 0.18) !important; }
-:root[data-theme='light'] .bg-white\/5 { background-color: rgba(30, 27, 75, 0.04) !important; }
-:root[data-theme='light'] .bg-white\/10 { background-color: rgba(30, 27, 75, 0.07) !important; }
-:root[data-theme='light'] .divide-white\/5 > * + * { border-color: rgba(30, 27, 75, 0.07) !important; }
-/* Keep primary/status accents legible (they already use colored text) */
 
 /* Slim scrollbars to match the dark theme */
 ::-webkit-scrollbar {

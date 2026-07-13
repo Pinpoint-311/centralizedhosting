@@ -8,15 +8,18 @@ from fastapi.staticfiles import StaticFiles
 from orchestrator import __version__
 from orchestrator.api import (
     admin,
+    analytics_api,
     audit_api,
     breakglass,
     fleet,
     insights_api,
     keys,
+    managed_api,
     releases,
     requests_api,
     secrets,
     state_credentials,
+    status_api,
     tenants,
 )
 from orchestrator.db import init_db
@@ -75,6 +78,9 @@ def create_app() -> FastAPI:
     app.include_router(admin.router)
     app.include_router(insights_api.router)
     app.include_router(requests_api.router)
+    app.include_router(managed_api.router)
+    app.include_router(analytics_api.router)
+    app.include_router(status_api.router)
 
     @app.get("/healthz", tags=["meta"])
     def healthz():
@@ -86,10 +92,14 @@ def create_app() -> FastAPI:
         the base domain is public and the SPA needs it before the token gate."""
         from orchestrator.config import settings
 
+        regions = [r.strip() for r in settings.regions.split(",") if r.strip()]
         return {
             "base_domain": settings.base_domain,
             "backend_image": settings.backend_image,
             "frontend_image": settings.frontend_image,
+            "region_label": settings.region_label,
+            "regions": regions,
+            "public_requests_enabled": settings.public_requests_enabled,
             "version": __version__,
         }
 

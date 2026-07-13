@@ -77,6 +77,16 @@ class Settings(BaseSettings):
     # unauthenticated endpoint); enable only behind rate-limiting/CAPTCHA.
     public_requests_enabled: bool = False
 
+    # Region grouping (generic — not any specific state). REGION_LABEL is the
+    # display term ("County", "Region", "District"); REGIONS is an optional
+    # comma-separated pick-list for intake (empty = free text).
+    region_label: str = "County"
+    regions: str = ""
+
+    # Analytics surfaced back to towns are aggregated to the region level with a
+    # minimum number of contributing towns, so a region can't be narrowed to one.
+    analytics_min_cell: int = 3
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

@@ -59,8 +59,17 @@ class Tenant(Base):
     latitude: Mapped[float | None] = mapped_column(default=None)
     longitude: Mapped[float | None] = mapped_column(default=None)
 
-    # Free-form operator tags (county, cohort, pilot, …) for filtering.
+    # Free-form operator tags (cohort, pilot, …) for filtering.
     tags: Mapped[list] = mapped_column(JSON, default=list)
+
+    # Region/county grouping (generic — the label is configurable via
+    # REGION_LABEL; used to aggregate what towns are allowed to see about each
+    # other at the region level rather than town-by-town).
+    county: Mapped[str | None] = mapped_column(String(120), default=None, index=True)
+
+    # State-set policy the town runs under in managed mode (retention, legal
+    # hold, security posture, …). Keys defined in managed_settings.CATALOG.
+    managed_settings: Mapped[dict] = mapped_column(JSON, default=dict)
 
     # Who provides each assignable API key (service_id -> "state"|"town").
     # Overrides on top of key_catalog defaults; set once, honored thereafter.
@@ -255,16 +264,64 @@ class TownRequest(Base):
     __tablename__ = "town_requests"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    ref_code: Mapped[str | None] = mapped_column(String(16), unique=True, default=None)
     name: Mapped[str] = mapped_column(String(255))
     requested_slug: Mapped[str | None] = mapped_column(String(63), default=None)
+    county: Mapped[str | None] = mapped_column(String(120), default=None)
     contact_name: Mapped[str | None] = mapped_column(String(255), default=None)
     contact_email: Mapped[str | None] = mapped_column(String(255), default=None)
+    contact_phone: Mapped[str | None] = mapped_column(String(64), default=None)
     message: Mapped[str | None] = mapped_column(Text, default=None)
+    # Everything else the richer intake collects (population, technical contact,
+    # current system, timeline, desired modules, key preferences, migration
+    # needs, records/accessibility contact, terms acknowledgment).
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    key_preferences: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
     tenant_id: Mapped[str | None] = mapped_column(String(32), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     decided_by: Mapped[str | None] = mapped_column(String(150), default=None)
+
+
+class ServiceCategory(Base):
+    """Canonical, cross-town service taxonomy (seeded from Open311 codes).
+    Local town categories map to these so analytics can roll up comparably."""
+
+    __tablename__ = "service_categories"
+
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    label: Mapped[str] = mapped_column(String(160))
+    group: Mapped[str | None] = mapped_column(String(80), default=None)
+
+
+class CategoryMapping(Base):
+    """Maps a town's local category (code or name) to a canonical code."""
+
+    __tablename__ = "category_mappings"
+    __table_args__ = (UniqueConstraint("tenant_id", "local_key"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    local_key: Mapped[str] = mapped_column(String(160))
+    canonical_code: Mapped[str] = mapped_column(String(64))
+
+
+class Announcement(Base):
+    """Operator broadcast: maintenance windows / incidents shown on the public
+    status page and (optionally) fleet-wide."""
+
+    __tablename__ = "announcements"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str | None] = mapped_column(Text, default=None)
+    severity: Mapped[str] = mapped_column(String(16), default="info")  # info|maintenance|incident
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    created_by: Mapped[str | None] = mapped_column(String(150), default=None)
 
 
 class Alert(Base):
