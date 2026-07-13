@@ -6,10 +6,11 @@ from sqlalchemy.orm import Session
 
 from orchestrator import audit
 from orchestrator.db import get_db
+from orchestrator.key_catalog import STATE, normalize_assignments, service_for_key
 from orchestrator.models import PlatformSecret, Tenant
 from orchestrator.provisioner import set_platform_secret
 from orchestrator.schemas import SecretOut, SecretWrite
-from orchestrator.secrets_policy import assert_platform_managed
+from orchestrator.secrets_policy import is_platform_managed
 from orchestrator.security import require_panel_token
 
 router = APIRouter(prefix="/api/tenants/{tenant_id}/secrets", tags=["secrets"])
@@ -44,11 +45,21 @@ def put_secret(
     db: Session = Depends(get_db),
     actor: str = Depends(require_panel_token),
 ):
-    _tenant(db, tenant_id)
-    try:
-        key = assert_platform_managed(key_name)
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
+    tenant = _tenant(db, tenant_id)
+    key = key_name.strip().upper()
+
+    # The panel brokers a key only if it is infrastructure (always state-owned)
+    # OR it belongs to an assignable service this town has assigned to "state".
+    # Otherwise the town owns it and enters it in its own instance.
+    if not is_platform_managed(key):
+        service = service_for_key(key)
+        assignments = normalize_assignments(tenant.key_assignments)
+        if not service or assignments.get(service["id"]) != STATE:
+            raise HTTPException(
+                422,
+                f"'{key}' is the town's responsibility — assign its service to the "
+                "state on the key-responsibility matrix before brokering it here.",
+            )
     set_platform_secret(db, tenant_id, key, body.value)
     audit.record(db, actor, "secret.written", tenant_id, key_name=key)
     db.commit()

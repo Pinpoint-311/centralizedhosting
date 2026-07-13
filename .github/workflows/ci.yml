@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,3 +17,17 @@ jobs:
         run: pip install .[dev]
       - name: Test
         run: pytest -q
+
+  panel-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install
+        working-directory: panel-ui
+        run: npm install --no-audit --no-fund
+      - name: Build
+        working-directory: panel-ui
+        run: npm run build

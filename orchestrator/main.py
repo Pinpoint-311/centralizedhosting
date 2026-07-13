@@ -1,11 +1,12 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from orchestrator import __version__
-from orchestrator.api import audit_api, breakglass, fleet, releases, secrets, tenants
+from orchestrator.api import audit_api, breakglass, fleet, keys, releases, secrets, tenants
 from orchestrator.db import init_db
 
 
@@ -29,6 +30,7 @@ def create_app() -> FastAPI:
 
     app.include_router(tenants.router)
     app.include_router(secrets.router)
+    app.include_router(keys.router)
     app.include_router(releases.router)
     app.include_router(fleet.router)
     app.include_router(breakglass.router)
@@ -38,9 +40,37 @@ def create_app() -> FastAPI:
     def healthz():
         return {"status": "ok", "version": __version__}
 
+    @app.get("/api/panel-config", tags=["meta"])
+    def panel_config():
+        """Non-sensitive fleet config for the UI (base domain, mode). No auth —
+        the base domain is public and the SPA needs it before the token gate."""
+        from orchestrator.config import settings
+
+        return {
+            "base_domain": settings.base_domain,
+            "backend_image": settings.backend_image,
+            "frontend_image": settings.frontend_image,
+            "version": __version__,
+        }
+
+    # Serve the built panel SPA (panel-ui/dist) when present; otherwise fall
+    # back to the minimal single-file dashboard so the panel is never blank.
+    static_dir = Path(__file__).parent / "static"
+    spa_index = static_dir / "index.html"
+    assets_dir = static_dir / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-    def dashboard():
-        return (Path(__file__).parent / "static" / "dashboard.html").read_text()
+    @app.get("/{full_path:path}", response_class=HTMLResponse, include_in_schema=False)
+    def spa(full_path: str = ""):
+        # API routes are matched before this catch-all; everything else serves
+        # the SPA shell so client-side routing (deep links) works on refresh.
+        if full_path.startswith(("api/", "assets/", "healthz")):
+            raise HTTPException(status_code=404, detail="Not found")
+        if spa_index.exists():
+            return spa_index.read_text()
+        return (static_dir / "dashboard.html").read_text()
 
     return app
 

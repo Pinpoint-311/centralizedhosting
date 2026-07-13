@@ -40,6 +40,13 @@ def render_stack(tenant: Tenant, secrets: dict[str, str], version: str) -> Path:
     target = tenant_dir(tenant)
     target.mkdir(parents=True, exist_ok=True)
 
+    from orchestrator.key_catalog import state_provided_keys as _state_keys
+
+    # Assignable service keys this town assigned to the state — the compose
+    # backend must forward them into the container (infra keys are already
+    # listed explicitly in the template).
+    brokered = sorted(k for k in _state_keys(tenant.key_assignments) if k in secrets)
+
     context = {
         "tenant": tenant,
         "version": version,
@@ -47,6 +54,7 @@ def render_stack(tenant: Tenant, secrets: dict[str, str], version: str) -> Path:
         "frontend_image": settings.frontend_image,
         "external_host": tenant.external_host,
         "secrets": secrets,
+        "state_provided_keys": brokered,
     }
 
     compose = _env.get_template("docker-compose.yml.j2").render(**context)
