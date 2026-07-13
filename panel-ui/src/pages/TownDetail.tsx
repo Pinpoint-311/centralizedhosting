@@ -17,8 +17,10 @@ import {
   Check,
   Copy,
   Save,
+  FileCode2,
 } from 'lucide-react'
 import { api } from '../lib/api'
+import { useSession } from '../lib/session'
 import type { KeyCatalog, ProvisionJob, SecretOut, Tenant } from '../lib/types'
 import {
   Badge,
@@ -39,9 +41,11 @@ type TabId = 'overview' | 'domain' | 'keys' | 'provisioning' | 'breakglass'
 
 export function TownDetail() {
   const BASE_DOMAIN = getBaseDomain()
+  const { can } = useSession()
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const toast = useToast()
+  const [showPreview, setShowPreview] = useState(false)
   const [tenant, setTenant] = useState<Tenant | null>(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<TabId>('overview')
@@ -108,7 +112,10 @@ export function TownDetail() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {!['decommissioned', 'offline'].includes(tenant.status) && (
+          <Button variant="ghost" onClick={() => setShowPreview(true)} leftIcon={<FileCode2 className="w-4 h-4" />}>
+            Preview stack
+          </Button>
+          {can('operator') && !['decommissioned', 'offline'].includes(tenant.status) && (
             <Button
               onClick={() =>
                 act('provision', () => api.provision(tenant.id), 'Provisioning run complete')
@@ -119,17 +126,17 @@ export function TownDetail() {
               {tenant.status === 'active' ? 'Re-provision' : 'Provision'}
             </Button>
           )}
-          {tenant.status === 'active' && (
+          {can('operator') && tenant.status === 'active' && (
             <Button variant="secondary" onClick={() => act('suspend', () => api.suspend(tenant.id), 'Suspended (read-only)')} isLoading={busy === 'suspend'} leftIcon={<Pause className="w-4 h-4" />}>
               Suspend
             </Button>
           )}
-          {tenant.status === 'suspended' && (
+          {can('operator') && tenant.status === 'suspended' && (
             <Button variant="secondary" onClick={() => act('resume', () => api.resume(tenant.id), 'Resumed')} isLoading={busy === 'resume'} leftIcon={<Play className="w-4 h-4" />}>
               Resume
             </Button>
           )}
-          {['active', 'suspended'].includes(tenant.status) && (
+          {can('operator') && ['active', 'suspended'].includes(tenant.status) && (
             <Button
               variant="secondary"
               onClick={() => act('offline', () => api.takeOffline(tenant.id), 'Taken offline — all data retained')}
@@ -140,7 +147,7 @@ export function TownDetail() {
               Take offline
             </Button>
           )}
-          {tenant.status === 'offline' && (
+          {can('operator') && tenant.status === 'offline' && (
             <Button
               onClick={() => act('online', () => api.bringOnline(tenant.id), 'Back online')}
               isLoading={busy === 'online'}
@@ -151,6 +158,8 @@ export function TownDetail() {
           )}
         </div>
       </div>
+
+      {showPreview && <StackPreview tenantId={tenant.id} onClose={() => setShowPreview(false)} />}
 
       {tenant.status === 'offline' && (
         <div className="mb-6 flex items-start gap-3 p-4 rounded-xl bg-slate-500/10 border border-slate-400/30">
@@ -187,10 +196,47 @@ export function TownDetail() {
       {tab === 'provisioning' && <Provisioning tenant={tenant} />}
       {tab === 'breakglass' && <BreakGlass tenant={tenant} />}
 
-      {tenant.status !== 'decommissioned' && (
+      {can('approver') && tenant.status !== 'decommissioned' && (
         <DangerZone tenant={tenant} onDone={() => navigate('/towns')} />
       )}
     </div>
+  )
+}
+
+function StackPreview({ tenantId, onClose }: { tenantId: string; onClose: () => void }) {
+  const toast = useToast()
+  const [data, setData] = useState<{ version: string; compose: string; env: string } | null>(null)
+  const [view, setView] = useState<'compose' | 'env'>('compose')
+  useEffect(() => {
+    api.stackPreview(tenantId).then(setData).catch((e) => toast.push((e as Error).message, 'error'))
+  }, [tenantId])
+  return (
+    <Modal open onClose={onClose} title="Stack preview — what will be deployed" wide>
+      {!data ? (
+        <Spinner />
+      ) : (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="inline-flex rounded-lg bg-white/5 border border-white/10 p-1">
+              {(['compose', 'env'] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setView(v)}
+                  className={`px-3 py-1.5 text-sm rounded-md ${view === v ? 'bg-indigo-500/30 text-white' : 'text-white/60'}`}
+                >
+                  {v === 'compose' ? 'docker-compose.yml' : '.env (masked)'}
+                </button>
+              ))}
+            </div>
+            <Badge variant="info">version {data.version}</Badge>
+          </div>
+          <pre className="text-xs text-white/80 bg-black/30 rounded-xl p-4 overflow-auto max-h-[60vh] whitespace-pre">
+            {view === 'compose' ? data.compose : data.env}
+          </pre>
+          <p className="text-xs text-white/40 mt-2">Secret values are masked; this is a read-only preview.</p>
+        </div>
+      )}
+    </Modal>
   )
 }
 
@@ -249,6 +295,7 @@ function DomainContact({ tenant, onSaved }: { tenant: Tenant; onSaved: () => voi
     notes: tenant.notes || '',
     latitude: tenant.latitude != null ? String(tenant.latitude) : '',
     longitude: tenant.longitude != null ? String(tenant.longitude) : '',
+    tags: (tenant.tags || []).join(', '),
   })
   function set(k: keyof typeof form, v: string) {
     setForm((f) => ({ ...f, [k]: v }))
@@ -265,6 +312,7 @@ function DomainContact({ tenant, onSaved }: { tenant: Tenant; onSaved: () => voi
         contact_phone: form.contact_phone || null,
         address: form.address || null,
         notes: form.notes || null,
+        tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
         latitude: form.latitude.trim() ? Number(form.latitude) : null,
         longitude: form.longitude.trim() ? Number(form.longitude) : null,
       })
@@ -304,6 +352,13 @@ function DomainContact({ tenant, onSaved }: { tenant: Tenant; onSaved: () => voi
         </div>
         <div className="mt-4 space-y-4">
           <Input label="Mailing address" value={form.address} onChange={(e) => set('address', e.target.value)} />
+          <Input
+            label="Tags (comma-separated)"
+            value={form.tags}
+            onChange={(e) => set('tags', e.target.value)}
+            placeholder="cook-county, pilot, cohort-1"
+            helperText="For filtering the fleet on the Municipalities page."
+          />
           <Textarea label="Notes (internal)" value={form.notes} onChange={(e) => set('notes', e.target.value)} />
         </div>
       </Card>
