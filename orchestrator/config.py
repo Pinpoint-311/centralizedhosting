@@ -68,6 +68,11 @@ class Settings(BaseSettings):
 
     telemetry_timeout_seconds: float = 5.0
 
+    # Optional Slack-compatible webhook for new monitoring alerts (best-effort).
+    alert_webhook_url: str = ""
+    # Background alert-evaluation cadence (seconds); 0 disables the loop.
+    alert_poll_seconds: int = 0
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

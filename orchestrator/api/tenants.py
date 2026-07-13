@@ -10,7 +10,14 @@ from orchestrator.config import settings
 from orchestrator.db import get_db
 from orchestrator.key_catalog import normalize_assignments
 from orchestrator.models import ProvisionJob, Tenant, TenantStatus
-from orchestrator.schemas import ProvisionJobOut, TenantCreate, TenantOut, TenantUpdate
+from orchestrator.schemas import (
+    BulkResultRow,
+    BulkTenantCreate,
+    ProvisionJobOut,
+    TenantCreate,
+    TenantOut,
+    TenantUpdate,
+)
 from orchestrator.security import require_approver, require_operator, require_panel_token
 
 router = APIRouter(prefix="/api/tenants", tags=["tenants"])
@@ -58,16 +65,49 @@ def update_tenant(
     return tenant
 
 
+@router.post("/bulk", response_model=list[BulkResultRow], status_code=201)
+def bulk_create(
+    body: BulkTenantCreate,
+    db: Session = Depends(get_db),
+    actor: str = Depends(require_operator),
+):
+    """Onboard many municipalities at once (e.g. from a CSV import). Each row is
+    independent — a bad row fails only itself and reports why."""
+    results: list[BulkResultRow] = []
+    for row in body.tenants:
+        existing = db.execute(select(Tenant).where(Tenant.slug == row.slug)).scalar_one_or_none()
+        if existing:
+            results.append(BulkResultRow(slug=row.slug, ok=False, error="slug already exists"))
+            continue
+        try:
+            data = row.model_dump()
+            data["key_assignments"] = normalize_assignments(data.get("key_assignments"))
+            tenant = Tenant(subdomain=row.slug, **data)
+            db.add(tenant)
+            db.flush()
+            audit.record(db, actor, "tenant.created", tenant.id, slug=tenant.slug, via="bulk")
+            results.append(BulkResultRow(slug=row.slug, ok=True, id=tenant.id))
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            results.append(BulkResultRow(slug=row.slug, ok=False, error=str(exc)[:200]))
+    db.commit()
+    return results
+
+
 @router.get("", response_model=list[TenantOut])
 def list_tenants(
     status: str | None = Query(default=None),
+    tag: str | None = Query(default=None),
     db: Session = Depends(get_db),
     _: str = Depends(require_panel_token),
 ):
     query = select(Tenant).order_by(Tenant.created_at)
     if status:
         query = query.where(Tenant.status == status)
-    return db.execute(query).scalars().all()
+    rows = db.execute(query).scalars().all()
+    if tag:
+        rows = [t for t in rows if tag in (t.tags or [])]
+    return rows
 
 
 @router.get("/{tenant_id}", response_model=TenantOut)

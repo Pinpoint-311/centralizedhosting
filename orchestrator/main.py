@@ -11,6 +11,7 @@ from orchestrator.api import (
     audit_api,
     breakglass,
     fleet,
+    insights_api,
     keys,
     releases,
     secrets,
@@ -22,8 +23,32 @@ from orchestrator.db import init_db
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    import asyncio
+
     init_db()
+
+    from orchestrator.config import settings
+
+    task = None
+    if settings.alert_poll_seconds and settings.alert_poll_seconds > 0:
+        async def _alert_loop():
+            from orchestrator.db import SessionLocal
+            from orchestrator import insights
+
+            while True:
+                await asyncio.sleep(settings.alert_poll_seconds)
+                try:
+                    with SessionLocal() as db:
+                        insights.evaluate_alerts(db)
+                except Exception:
+                    pass  # never let the background loop crash the app
+
+        task = asyncio.create_task(_alert_loop())
+
     yield
+
+    if task:
+        task.cancel()
 
 
 def create_app() -> FastAPI:
@@ -47,6 +72,7 @@ def create_app() -> FastAPI:
     app.include_router(breakglass.router)
     app.include_router(audit_api.router)
     app.include_router(admin.router)
+    app.include_router(insights_api.router)
 
     @app.get("/healthz", tags=["meta"])
     def healthz():

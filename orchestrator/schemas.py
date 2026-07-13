@@ -23,6 +23,7 @@ class TenantCreate(TenantContact):
     custom_domain: str | None = None
     region: str = "us"
     plan: str = "standard"
+    tags: list[str] = Field(default_factory=list)
     # Optional initial key-responsibility overrides (service_id -> state|town)
     key_assignments: dict[str, str] = Field(default_factory=dict)
 
@@ -42,6 +43,32 @@ class TenantUpdate(TenantContact):
     custom_domain: str | None = None
     region: str | None = None
     plan: str | None = None
+    tags: list[str] | None = None
+
+
+class BulkTenantCreate(BaseModel):
+    tenants: list[TenantCreate]
+
+
+class BulkResultRow(BaseModel):
+    slug: str
+    ok: bool
+    id: str | None = None
+    error: str | None = None
+
+
+class AlertOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    tenant_id: str | None
+    tenant_slug: str | None
+    kind: str
+    severity: str
+    message: str
+    created_at: datetime
+    acknowledged_at: datetime | None
+    acknowledged_by: str | None
 
 
 class TenantOut(BaseModel):
@@ -63,6 +90,7 @@ class TenantOut(BaseModel):
     notes: str | None
     latitude: float | None
     longitude: float | None
+    tags: list = []
     key_assignments: dict = {}
     running_version: str | None
     target_version: str | None

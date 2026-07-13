@@ -59,6 +59,9 @@ class Tenant(Base):
     latitude: Mapped[float | None] = mapped_column(default=None)
     longitude: Mapped[float | None] = mapped_column(default=None)
 
+    # Free-form operator tags (county, cohort, pilot, …) for filtering.
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+
     # Who provides each assignable API key (service_id -> "state"|"town").
     # Overrides on top of key_catalog defaults; set once, honored thereafter.
     key_assignments: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -242,6 +245,24 @@ class BreakGlassGrant(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class Alert(Base):
+    """A fired monitoring alert (town down, version drift, cost spike, …).
+    Open until acknowledged; the evaluator won't duplicate an open alert of the
+    same (tenant, kind)."""
+
+    __tablename__ = "alerts"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(String(32), index=True, default=None)
+    tenant_slug: Mapped[str | None] = mapped_column(String(63), default=None)
+    kind: Mapped[str] = mapped_column(String(32), index=True)  # down|drift|cost_spike|cert_expiry
+    severity: Mapped[str] = mapped_column(String(16), default="warning")  # info|warning|critical
+    message: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    acknowledged_by: Mapped[str | None] = mapped_column(String(150), default=None)
 
 
 class AuditLog(Base):
