@@ -88,6 +88,35 @@ def render_stack(
     return target
 
 
+def preview_stack(
+    tenant: Tenant,
+    secrets: dict[str, str],
+    version: str,
+    backend_digest: str | None = None,
+    frontend_digest: str | None = None,
+) -> dict:
+    """Render the compose + env to strings WITHOUT writing them — for the
+    "what will be deployed" preview. Secret values in the env are masked."""
+    from orchestrator.key_catalog import state_provided_keys as _state_keys
+
+    brokered = sorted(k for k in _state_keys(tenant.key_assignments) if k in secrets)
+    context = {
+        "tenant": tenant,
+        "version": version,
+        "backend_image": settings.backend_image,
+        "frontend_image": settings.frontend_image,
+        "backend_ref": _image_ref(settings.backend_image, version, backend_digest),
+        "frontend_ref": _image_ref(settings.frontend_image, version, frontend_digest),
+        "external_host": tenant.external_host,
+        "secrets": {k: "••••••••" for k in secrets},  # masked
+        "state_provided_keys": brokered,
+    }
+    return {
+        "compose": _env.get_template("docker-compose.yml.j2").render(**context),
+        "env": _env.get_template("env.j2").render(**context),
+    }
+
+
 def apply_stack(tenant: Tenant) -> str:
     """`docker compose up -d` for the town. Only called when APPLY_STACKS=true."""
     result = subprocess.run(
