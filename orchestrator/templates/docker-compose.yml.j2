@@ -45,7 +45,7 @@ services:
         max-file: "3"
 
   backend:
-    image: {{ backend_image }}:{{ version }}
+    image: {{ backend_ref }}
     restart: unless-stopped
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     environment:
@@ -87,7 +87,7 @@ services:
         max-file: "3"
 
   worker:
-    image: {{ backend_image }}:{{ version }}
+    image: {{ backend_ref }}
     restart: unless-stopped
     command: celery -A app.core.celery_app worker --beat --loglevel=info
     environment:
@@ -111,7 +111,7 @@ services:
         max-file: "3"
 
   frontend:
-    image: {{ frontend_image }}:{{ version }}
+    image: {{ frontend_ref }}
     restart: unless-stopped
     ports:
       - "127.0.0.1:{{ tenant.frontend_port }}:80"

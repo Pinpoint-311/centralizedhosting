@@ -107,6 +107,12 @@ def _secrets_bundle(db: Session, tenant: Tenant) -> dict[str, str]:
     return bundle
 
 
+def release_for_version(db: Session, version: str) -> Release | None:
+    return db.execute(
+        select(Release).where(Release.version == version)
+    ).scalar_one_or_none()
+
+
 def _target_version(db: Session, tenant: Tenant) -> str:
     if tenant.target_version:
         return tenant.target_version
@@ -114,6 +120,19 @@ def _target_version(db: Session, tenant: Tenant) -> str:
         select(Release).order_by(Release.published_at.desc())
     ).scalars().first()
     return latest.version if latest else "latest"
+
+
+def render_for_tenant(db: Session, tenant: Tenant, version: str) -> None:
+    """Render a town's stack, pinning image digests from the matching Release
+    when it declares them (government-correct supply-chain posture)."""
+    rel = release_for_version(db, version)
+    stack.render_stack(
+        tenant,
+        _secrets_bundle(db, tenant),
+        version,
+        backend_digest=rel.backend_digest if rel else None,
+        frontend_digest=rel.frontend_digest if rel else None,
+    )
 
 
 # --------------------------------------------------------------------- steps
@@ -185,7 +204,7 @@ def _step_configure_dns(db: Session, tenant: Tenant, ctx: dict) -> tuple[str, st
 def _step_render_stack(db: Session, tenant: Tenant, ctx: dict) -> tuple[str, str]:
     version = _target_version(db, tenant)
     tenant.target_version = version
-    stack.render_stack(tenant, _secrets_bundle(db, tenant), version)
+    render_for_tenant(db, tenant, version)
     return DONE, f"compose stack rendered at {stack.tenant_dir(tenant)} (version {version})"
 
 
@@ -277,6 +296,28 @@ def run_provision(db: Session, tenant: Tenant, actor: str, ctx: dict | None = No
     audit.record(db, actor, "tenant.provision.succeeded", tenant.id, job_id=job.id)
     db.commit()
     return job
+
+
+def take_offline(db: Session, tenant: Tenant, actor: str) -> None:
+    """Take a town offline WITHOUT deleting anything. Stops the running stack so
+    it consumes no compute and is no longer reachable, but keeps every DB /
+    Redis / uploads volume, the KMS key, and all brokered secrets intact.
+    Fully reversible via bring_online. This is NOT decommissioning — no
+    crypto-shred, no data loss."""
+    if settings.apply_stacks:
+        stack.stop_stack(tenant)
+    tenant.status = TenantStatus.OFFLINE
+    audit.record(db, actor, "tenant.taken_offline", tenant.id, data_retained=True)
+    db.commit()
+
+
+def bring_online(db: Session, tenant: Tenant, actor: str) -> None:
+    """Bring a previously offline town back up with all its data intact."""
+    if settings.apply_stacks:
+        stack.start_stack(tenant)
+    tenant.status = TenantStatus.ACTIVE
+    audit.record(db, actor, "tenant.brought_online", tenant.id)
+    db.commit()
 
 
 def decommission(db: Session, tenant: Tenant, actor: str) -> None:

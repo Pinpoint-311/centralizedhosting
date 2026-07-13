@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     panel_secret_key: str = "dev-panel-secret-change-me"
     # Operator API auth. Empty -> the API fails closed (503 on every call).
     panel_api_token: str = ""
+    # In production the panel must sit behind an OIDC/SSO reverse proxy that
+    # authenticates each operator and sets a trusted identity header (e.g.
+    # X-Forwarded-User). Name it here and the audit trail records the real
+    # operator instead of a generic label. The shared token alone is NOT
+    # sufficient authZ for government production — see GOVERNMENT_PRODUCTION.md.
+    operator_header: str = ""
 
     # Fleet identity
     base_domain: str = "311.example.gov"

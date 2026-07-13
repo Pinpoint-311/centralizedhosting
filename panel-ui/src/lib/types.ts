@@ -3,6 +3,7 @@ export type TenantStatus =
   | 'provisioning'
   | 'active'
   | 'suspended'
+  | 'offline'
   | 'failed'
   | 'decommissioned'
 
@@ -21,6 +22,8 @@ export interface Tenant {
   contact_title: string | null
   address: string | null
   notes: string | null
+  latitude: number | null
+  longitude: number | null
   key_assignments: Record<string, string>
   running_version: string | null
   target_version: string | null
@@ -77,6 +80,8 @@ export interface Release {
   version: string
   backend_image: string
   frontend_image: string
+  backend_digest: string | null
+  frontend_digest: string | null
   db_revision: string | null
   min_db_revision: string | null
   notes: string | null

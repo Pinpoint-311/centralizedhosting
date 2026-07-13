@@ -26,6 +26,8 @@ def publish_release(
         version=body.version,
         backend_image=body.backend_image or settings.backend_image,
         frontend_image=body.frontend_image or settings.frontend_image,
+        backend_digest=body.backend_digest,
+        frontend_digest=body.frontend_digest,
         db_revision=body.db_revision,
         min_db_revision=body.min_db_revision,
         notes=body.notes,

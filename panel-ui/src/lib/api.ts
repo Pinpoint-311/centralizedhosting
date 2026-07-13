@@ -70,6 +70,8 @@ export const api = {
   listJobs: (id: string) => req<ProvisionJob[]>('GET', `/api/tenants/${id}/jobs`),
   suspend: (id: string) => req<Tenant>('POST', `/api/tenants/${id}/suspend`),
   resume: (id: string) => req<Tenant>('POST', `/api/tenants/${id}/resume`),
+  takeOffline: (id: string) => req<Tenant>('POST', `/api/tenants/${id}/take-offline`),
+  bringOnline: (id: string) => req<Tenant>('POST', `/api/tenants/${id}/bring-online`),
   decommission: (id: string, slug: string) =>
     req<Tenant>('POST', `/api/tenants/${id}/decommission?confirm_slug=${encodeURIComponent(slug)}`),
 

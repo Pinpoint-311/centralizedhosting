@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
   Building2,
+  Map as MapIcon,
   Rocket,
   ScrollText,
   Settings,
@@ -16,6 +17,7 @@ import { Logo } from './Logo'
 const NAV = [
   { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: '/towns', label: 'Municipalities', icon: Building2 },
+  { to: '/map', label: 'State Map', icon: MapIcon },
   { to: '/releases', label: 'Releases', icon: Rocket },
   { to: '/audit', label: 'Audit Log', icon: ScrollText },
   { to: '/settings', label: 'Settings', icon: Settings },
@@ -41,7 +43,7 @@ export function Shell({ children, onLogout }: { children: React.ReactNode; onLog
         </div>
       </div>
 
-      <nav className="flex-1 px-3 space-y-1">
+      <nav aria-label="Primary" className="flex-1 px-3 space-y-1">
         {NAV.map((item) => (
           <NavLink
             key={item.to}
@@ -83,7 +85,7 @@ export function Shell({ children, onLogout }: { children: React.ReactNode; onLog
 
       {/* Mobile drawer */}
       {open && (
-        <div className="lg:hidden fixed inset-0 z-40 flex">
+        <div className="lg:hidden fixed inset-0 z-40 flex" role="dialog" aria-modal="true" aria-label="Navigation menu">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setOpen(false)} />
           <div className="relative w-64 bg-[rgba(30,27,75,0.97)] backdrop-blur-xl border-r border-white/10">
             {sidebar}
@@ -97,12 +99,19 @@ export function Shell({ children, onLogout }: { children: React.ReactNode; onLog
             <Logo size={32} />
             <span className="font-bold text-white">Pinpoint 311</span>
           </div>
-          <button onClick={() => setOpen((o) => !o)} className="p-2 text-white/70">
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="p-2 text-white/70 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+            aria-label={open ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={open}
+          >
             {open ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
         </header>
 
-        <main className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">{children}</main>
+        <main id="main-content" role="main" className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+          {children}
+        </main>
       </div>
     </div>
   )

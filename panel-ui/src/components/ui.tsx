@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useId, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { ChevronDown, X } from 'lucide-react'
 
@@ -105,25 +105,46 @@ export function Input({
   helperText?: string
   leftIcon?: React.ReactNode
 }) {
+  const genId = useId()
+  const id = props.id || genId
+  const describedBy = error ? `${id}-err` : helperText ? `${id}-help` : undefined
   return (
     <div className="w-full">
       {label && (
-        <label className="block text-sm font-medium text-white/70 mb-2">
+        <label htmlFor={id} className="block text-sm font-medium text-white/70 mb-2">
           {label}
-          {required && <span className="text-primary-400 ml-0.5">*</span>}
+          {required && (
+            <span className="text-primary-400 ml-0.5" aria-hidden="true">
+              *
+            </span>
+          )}
         </label>
       )}
       <div className="relative">
         {leftIcon && (
-          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40">{leftIcon}</div>
+          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" aria-hidden="true">
+            {leftIcon}
+          </div>
         )}
         <input
+          id={id}
+          aria-required={required || undefined}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy}
           className={`glass-input ${leftIcon ? 'pl-11' : ''} ${error ? 'border-red-400/50' : ''} ${className}`}
           {...props}
         />
       </div>
-      {helperText && !error && <p className="mt-1.5 text-sm text-white/50">{helperText}</p>}
-      {error && <p className="mt-1.5 text-sm text-red-400">{error}</p>}
+      {helperText && !error && (
+        <p id={`${id}-help`} className="mt-1.5 text-sm text-white/50">
+          {helperText}
+        </p>
+      )}
+      {error && (
+        <p id={`${id}-err`} className="mt-1.5 text-sm text-red-400" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   )
 }
@@ -134,10 +155,16 @@ export function Textarea({
   className = '',
   ...props
 }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label?: string }) {
+  const genId = useId()
+  const id = props.id || genId
   return (
     <div className="w-full">
-      {label && <label className="block text-sm font-medium text-white/70 mb-2">{label}</label>}
-      <textarea className={`glass-input min-h-[90px] resize-y ${className}`} {...props} />
+      {label && (
+        <label htmlFor={id} className="block text-sm font-medium text-white/70 mb-2">
+          {label}
+        </label>
+      )}
+      <textarea id={id} className={`glass-input min-h-[90px] resize-y ${className}`} {...props} />
     </div>
   )
 }
@@ -152,18 +179,31 @@ export function Select({
   label?: string
   options: { value: string; label: string }[]
 }) {
+  const genId = useId()
+  const id = props.id || genId
   return (
     <div className="w-full">
-      {label && <label className="block text-sm font-medium text-white/70 mb-2">{label}</label>}
+      {label && (
+        <label htmlFor={id} className="block text-sm font-medium text-white/70 mb-2">
+          {label}
+        </label>
+      )}
       <div className="relative">
-        <select className={`glass-input appearance-none pr-10 cursor-pointer ${className}`} {...props}>
+        <select
+          id={id}
+          className={`glass-input appearance-none pr-10 cursor-pointer ${className}`}
+          {...props}
+        >
           {options.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>
           ))}
         </select>
-        <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40 pointer-events-none" />
+        <ChevronDown
+          className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40 pointer-events-none"
+          aria-hidden="true"
+        />
       </div>
     </div>
   )
@@ -199,6 +239,7 @@ const STATUS_VARIANT: Record<string, BadgeVariant> = {
   pending: 'info',
   provisioning: 'warning',
   suspended: 'warning',
+  offline: 'default',
   failed: 'danger',
   decommissioned: 'default',
 }
@@ -220,6 +261,48 @@ export function Modal({
   children: React.ReactNode
   wide?: boolean
 }) {
+  const titleId = useId()
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    document.body.style.overflow = 'hidden'
+    // Move focus into the dialog for screen-reader + keyboard users.
+    const first = panelRef.current?.querySelector<HTMLElement>(
+      'input, button, textarea, select, [tabindex]:not([tabindex="-1"])',
+    )
+    first?.focus()
+
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+      if (e.key === 'Tab' && panelRef.current) {
+        // Simple focus trap
+        const focusables = Array.from(
+          panelRef.current.querySelectorAll<HTMLElement>(
+            'input, button, textarea, select, a[href], [tabindex]:not([tabindex="-1"])',
+          ),
+        ).filter((el) => !el.hasAttribute('disabled'))
+        if (focusables.length === 0) return
+        const firstEl = focusables[0]
+        const lastEl = focusables[focusables.length - 1]
+        if (e.shiftKey && document.activeElement === firstEl) {
+          e.preventDefault()
+          lastEl.focus()
+        } else if (!e.shiftKey && document.activeElement === lastEl) {
+          e.preventDefault()
+          firstEl.focus()
+        }
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = ''
+      previouslyFocused?.focus()
+    }
+  }, [open, onClose])
+
   if (!open) return null
   return (
     <div
@@ -227,16 +310,24 @@ export function Modal({
       onClick={onClose}
     >
       <motion.div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         initial={{ opacity: 0, y: 20, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         className={`glass-card w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} my-auto`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-6 border-b border-white/10">
-          <h2 className="text-lg font-bold text-white">{title}</h2>
+          <h2 id={titleId} className="text-lg font-bold text-white">
+            {title}
+          </h2>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors"
+            aria-label="Close dialog"
+            className="p-2 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
           >
             <X className="w-5 h-5" />
           </button>

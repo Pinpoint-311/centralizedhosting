@@ -10,6 +10,8 @@ import {
   Rocket,
   Pause,
   Play,
+  Power,
+  PowerOff,
   Trash2,
   Server,
   Check,
@@ -106,7 +108,7 @@ export function TownDetail() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {tenant.status !== 'decommissioned' && (
+          {!['decommissioned', 'offline'].includes(tenant.status) && (
             <Button
               onClick={() =>
                 act('provision', () => api.provision(tenant.id), 'Provisioning run complete')
@@ -118,7 +120,7 @@ export function TownDetail() {
             </Button>
           )}
           {tenant.status === 'active' && (
-            <Button variant="secondary" onClick={() => act('suspend', () => api.suspend(tenant.id), 'Suspended')} isLoading={busy === 'suspend'} leftIcon={<Pause className="w-4 h-4" />}>
+            <Button variant="secondary" onClick={() => act('suspend', () => api.suspend(tenant.id), 'Suspended (read-only)')} isLoading={busy === 'suspend'} leftIcon={<Pause className="w-4 h-4" />}>
               Suspend
             </Button>
           )}
@@ -127,8 +129,39 @@ export function TownDetail() {
               Resume
             </Button>
           )}
+          {['active', 'suspended'].includes(tenant.status) && (
+            <Button
+              variant="secondary"
+              onClick={() => act('offline', () => api.takeOffline(tenant.id), 'Taken offline — all data retained')}
+              isLoading={busy === 'offline'}
+              leftIcon={<PowerOff className="w-4 h-4" />}
+              title="Stop the instance but keep all data, PII, and configuration. Reversible."
+            >
+              Take offline
+            </Button>
+          )}
+          {tenant.status === 'offline' && (
+            <Button
+              onClick={() => act('online', () => api.bringOnline(tenant.id), 'Back online')}
+              isLoading={busy === 'online'}
+              leftIcon={<Power className="w-4 h-4" />}
+            >
+              Bring online
+            </Button>
+          )}
         </div>
       </div>
+
+      {tenant.status === 'offline' && (
+        <div className="mb-6 flex items-start gap-3 p-4 rounded-xl bg-slate-500/10 border border-slate-400/30">
+          <PowerOff className="w-5 h-5 text-slate-300 shrink-0 mt-0.5" />
+          <p className="text-sm text-white/70">
+            This instance is <b>offline</b>. It's not reachable and consumes no compute, but its
+            database, PII, uploads, encryption key, and configuration are fully retained. Use{' '}
+            <b>Bring online</b> to restore it exactly as it was.
+          </p>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 overflow-x-auto border-b border-white/10">
@@ -214,6 +247,8 @@ function DomainContact({ tenant, onSaved }: { tenant: Tenant; onSaved: () => voi
     contact_phone: tenant.contact_phone || '',
     address: tenant.address || '',
     notes: tenant.notes || '',
+    latitude: tenant.latitude != null ? String(tenant.latitude) : '',
+    longitude: tenant.longitude != null ? String(tenant.longitude) : '',
   })
   function set(k: keyof typeof form, v: string) {
     setForm((f) => ({ ...f, [k]: v }))
@@ -230,6 +265,8 @@ function DomainContact({ tenant, onSaved }: { tenant: Tenant; onSaved: () => voi
         contact_phone: form.contact_phone || null,
         address: form.address || null,
         notes: form.notes || null,
+        latitude: form.latitude.trim() ? Number(form.latitude) : null,
+        longitude: form.longitude.trim() ? Number(form.longitude) : null,
       })
       toast.push('Saved')
       onSaved()
@@ -268,6 +305,30 @@ function DomainContact({ tenant, onSaved }: { tenant: Tenant; onSaved: () => voi
         <div className="mt-4 space-y-4">
           <Input label="Mailing address" value={form.address} onChange={(e) => set('address', e.target.value)} />
           <Textarea label="Notes (internal)" value={form.notes} onChange={(e) => set('notes', e.target.value)} />
+        </div>
+      </Card>
+
+      <Card>
+        <h3 className="font-semibold text-white mb-1">Location (for the State Map)</h3>
+        <p className="text-sm text-white/50 mb-4">
+          Optional latitude / longitude in decimal degrees to place this municipality on the state
+          map. Metadata only.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Input
+            label="Latitude"
+            inputMode="decimal"
+            placeholder="39.7817"
+            value={form.latitude}
+            onChange={(e) => set('latitude', e.target.value)}
+          />
+          <Input
+            label="Longitude"
+            inputMode="decimal"
+            placeholder="-89.6501"
+            value={form.longitude}
+            onChange={(e) => set('longitude', e.target.value)}
+          />
         </div>
       </Card>
 
