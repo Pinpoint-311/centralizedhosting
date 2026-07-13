@@ -6,14 +6,23 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 _SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
-class TenantCreate(BaseModel):
+class TenantContact(BaseModel):
+    contact_name: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    contact_title: str | None = None
+    address: str | None = None
+    notes: str | None = None
+
+
+class TenantCreate(TenantContact):
     name: str = Field(min_length=1, max_length=255)
     slug: str
     custom_domain: str | None = None
     region: str = "us"
     plan: str = "standard"
-    contact_name: str | None = None
-    contact_email: str | None = None
+    # Optional initial key-responsibility overrides (service_id -> state|town)
+    key_assignments: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("slug")
     @classmethod
@@ -22,6 +31,15 @@ class TenantCreate(BaseModel):
         if not _SLUG_RE.match(v) or v.startswith("_"):
             raise ValueError("slug must be a DNS-safe label (lowercase, digits, hyphens)")
         return v
+
+
+class TenantUpdate(TenantContact):
+    """Editable metadata after creation (domain + contacts)."""
+
+    name: str | None = Field(default=None, max_length=255)
+    custom_domain: str | None = None
+    region: str | None = None
+    plan: str | None = None
 
 
 class TenantOut(BaseModel):
@@ -37,6 +55,11 @@ class TenantOut(BaseModel):
     status: str
     contact_name: str | None
     contact_email: str | None
+    contact_phone: str | None
+    contact_title: str | None
+    address: str | None
+    notes: str | None
+    key_assignments: dict = {}
     running_version: str | None
     target_version: str | None
     db_name: str | None
@@ -68,6 +91,21 @@ class ProvisionJobOut(BaseModel):
     created_at: datetime
     finished_at: datetime | None
     steps: list[ProvisionStepOut] = []
+
+
+class KeyCatalogOut(BaseModel):
+    assignable: list[dict]
+    infrastructure: list[str]
+    infrastructure_prefixes: list[str]
+    owners: list[str]
+
+
+class TenantKeyAssignments(BaseModel):
+    assignments: dict[str, str]
+
+
+class KeyAssignmentUpdate(BaseModel):
+    assignments: dict[str, str]
 
 
 class SecretWrite(BaseModel):

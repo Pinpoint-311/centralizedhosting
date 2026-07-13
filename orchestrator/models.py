@@ -46,8 +46,17 @@ class Tenant(Base):
     plan: Mapped[str] = mapped_column(String(32), default="standard")
     status: Mapped[str] = mapped_column(String(24), default=TenantStatus.PENDING, index=True)
 
+    # Primary contact for the municipality (billing / escalation / support).
     contact_name: Mapped[str | None] = mapped_column(String(255), default=None)
     contact_email: Mapped[str | None] = mapped_column(String(255), default=None)
+    contact_phone: Mapped[str | None] = mapped_column(String(64), default=None)
+    contact_title: Mapped[str | None] = mapped_column(String(128), default=None)
+    address: Mapped[str | None] = mapped_column(Text, default=None)
+    notes: Mapped[str | None] = mapped_column(Text, default=None)
+
+    # Who provides each assignable API key (service_id -> "state"|"town").
+    # Overrides on top of key_catalog defaults; set once, honored thereafter.
+    key_assignments: Mapped[dict] = mapped_column(JSON, default=dict)
 
     # Versions (B3). running_version is what the fleet poller last observed;
     # target_version is what the panel deployed.

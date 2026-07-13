@@ -61,6 +61,9 @@ services:
       KMS_KEY_RING: ${KMS_KEY_RING:-}
       KMS_KEY_ID: ${KMS_KEY_ID:-}
       KMS_LOCATION: ${KMS_LOCATION:-}
+{%- for key in state_provided_keys %}
+      {{ key }}: ${{ '{' }}{{ key }}:-}
+{%- endfor %}
     depends_on:
       db:
         condition: service_healthy

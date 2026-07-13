@@ -8,8 +8,9 @@ from orchestrator import audit, provisioner
 from orchestrator.app_client import client_for_tenant
 from orchestrator.config import settings
 from orchestrator.db import get_db
+from orchestrator.key_catalog import normalize_assignments
 from orchestrator.models import ProvisionJob, Tenant, TenantStatus
-from orchestrator.schemas import ProvisionJobOut, TenantCreate, TenantOut
+from orchestrator.schemas import ProvisionJobOut, TenantCreate, TenantOut, TenantUpdate
 from orchestrator.security import require_panel_token
 
 router = APIRouter(prefix="/api/tenants", tags=["tenants"])
@@ -30,9 +31,29 @@ def create_tenant(
 ):
     if db.execute(select(Tenant).where(Tenant.slug == body.slug)).scalar_one_or_none():
         raise HTTPException(409, f"Tenant slug '{body.slug}' already exists")
-    tenant = Tenant(subdomain=body.slug, **body.model_dump())
+    data = body.model_dump()
+    data["key_assignments"] = normalize_assignments(data.get("key_assignments"))
+    tenant = Tenant(subdomain=body.slug, **data)
     db.add(tenant)
     audit.record(db, actor, "tenant.created", tenant.id, slug=tenant.slug, name=tenant.name)
+    db.commit()
+    return tenant
+
+
+@router.patch("/{tenant_id}", response_model=TenantOut)
+def update_tenant(
+    tenant_id: str,
+    body: TenantUpdate,
+    db: Session = Depends(get_db),
+    actor: str = Depends(require_panel_token),
+):
+    """Edit contact info and domain after creation. Slug/subdomain are
+    immutable (DNS + provisioned resources depend on them)."""
+    tenant = _get_tenant(db, tenant_id)
+    changes = body.model_dump(exclude_unset=True)
+    for field, value in changes.items():
+        setattr(tenant, field, value)
+    audit.record(db, actor, "tenant.updated", tenant.id, fields=sorted(changes.keys()))
     db.commit()
     return tenant
 

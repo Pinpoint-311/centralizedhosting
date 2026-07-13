@@ -19,9 +19,54 @@ source.
 | **B1** Tenant registry | Town, domain, region, plan, status, running version, contacts — metadata only; doubles as the StateRAMP/FedRAMP boundary inventory | `orchestrator/models.py` (`Tenant`), `/api/tenants` |
 | **B2** Provisioner | Idempotent pipeline: DB → `SECRET_KEY` → KMS key → storage bucket → DNS/TLS → deploy image @ version → app provisioning API → one-time onboarding link | `orchestrator/provisioner.py` |
 | **B3** Release management | Publish versioned image → canary rollout → watch health/version stamp → auto-rollback → enforce `min_db_revision` before promoting | `orchestrator/rollout.py`, `/api/releases`, `/api/rollouts` |
-| **B4** Fleet dashboard | Telemetry aggregation, drift detection, per-town status | `orchestrator/api/fleet.py`, dashboard at `/` |
+| **B4** Fleet dashboard | Telemetry aggregation, drift detection, per-town status | `orchestrator/api/fleet.py` |
 | **B5** Secrets brokering | Platform-managed keys only, encrypted at rest, write-only API; tenant-managed keys never touch the panel | `orchestrator/secrets_policy.py`, `orchestrator/api/secrets.py` |
 | **B6** Break-glass + compliance | Time-boxed signed state-ops tokens + central audit of every action | `orchestrator/api/breakglass.py`, `orchestrator/audit.py` |
+| **Key responsibility** | Per-town matrix of who provides each external API key (state brokers it, or the town owns it) — set once, honored by the broker + provisioner | `orchestrator/key_catalog.py`, `orchestrator/api/keys.py` |
+| **Panel UI** | Premium React control-plane matching the Pinpoint app design (fleet dashboard, add-town wizard, key matrix, releases, audit) | `panel-ui/`, served at `/` |
+
+## Panel UI
+
+A React + Vite + Tailwind SPA (`panel-ui/`) matching the Pinpoint app's design
+system — indigo/glassmorphism, framer-motion, recharts. It covers the full
+operator workflow:
+
+- **Fleet Overview** — status/version charts, drift, per-town health, telemetry poll.
+- **Municipalities** — searchable list + a 5-step **Add municipality** wizard
+  (identity → subdomain-or-custom-domain → contact → API-key matrix → review).
+- **Town detail** — lifecycle (provision / suspend / resume / decommission),
+  editable domain + contact, the **key-responsibility matrix** with inline
+  brokered-secret entry, provisioning-job timeline, and break-glass issuance.
+- **Releases** — publish versions and drive canary → promote / rollback.
+- **Audit** — the central compliance trail.
+
+The app is gated by the panel operator token (stored client-side, sent as
+`X-Panel-Token`). It's built into `orchestrator/static/` and served by FastAPI
+at `/`, with client-side routing on deep links; if no build is present the
+minimal `dashboard.html` is served as a fallback.
+
+```bash
+cd panel-ui && npm install && npm run build   # outputs to ../orchestrator/static
+# or dev with hot reload against a local panel:
+npm run dev                                    # proxies /api to :8100
+```
+
+The Docker image builds the UI automatically (multi-stage), so `docker compose
+up` ships the full panel with no separate step.
+
+## Key responsibility matrix
+
+The state decides, per town, who provides each **assignable** API key —
+Maps, AI, translation, SMTP, SMS, staff SSO, error monitoring:
+
+- **State provides** → the panel brokers the credential (encrypted at rest) and
+  injects it into the town's env at provision time.
+- **Town provides** → the town enters it in its own instance; it never touches
+  the panel (the secret-broker endpoint refuses it with `422`).
+
+**Infrastructure keys** (`SECRET_KEY`, DB creds, KMS refs, backups, domain) are
+always state-owned and shown locked. Set the matrix once at add-town time or
+edit it later; `orchestrator/key_catalog.py` holds the catalog + defaults.
 
 Deployment shape is the plan's **MVP shortcut**: the panel renders one Docker
 Compose stack per town under `TENANT_ROOT` (plus a Caddy site block for the
@@ -49,14 +94,18 @@ watchtower** — upgrades come only from this panel.
 
 ```bash
 pip install .[dev]
-pytest                      # 38 tests
+pytest                      # 46 tests
+
+# build the panel UI (or rely on the Docker multi-stage build)
+cd panel-ui && npm install && npm run build && cd ..
 
 export PANEL_API_TOKEN=$(openssl rand -hex 24)
 export PANEL_SECRET_KEY=$(openssl rand -hex 32)
 uvicorn orchestrator.main:app --port 8100
 ```
 
-Open `http://localhost:8100/` for the fleet dashboard, `/docs` for the API.
+Open `http://localhost:8100/` for the panel UI (enter the `PANEL_API_TOKEN`),
+`/docs` for the API.
 
 Provision a town end-to-end (render-only by default — set `APPLY_STACKS=true`
 on a managed host with Docker to actually run it):

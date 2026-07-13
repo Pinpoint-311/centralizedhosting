@@ -34,7 +34,7 @@ def test_tenant_managed_keys_never_touch_the_panel(client):
             headers=HEADERS,
         )
         assert resp.status_code == 422, key
-        assert "tenant-managed" in resp.json()["detail"]
+        assert "town's responsibility" in resp.json()["detail"]
 
 
 def test_secret_values_are_never_returned_and_encrypted_at_rest(client, db):

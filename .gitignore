@@ -6,3 +6,9 @@ __pycache__/
 panel.db
 tenants/
 .env
+
+# Panel UI build artifacts (built in Docker/CI; dashboard.html is the fallback)
+panel-ui/node_modules/
+panel-ui/dist/
+orchestrator/static/index.html
+orchestrator/static/assets/
