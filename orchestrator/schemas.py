@@ -13,6 +13,8 @@ class TenantContact(BaseModel):
     contact_title: str | None = None
     address: str | None = None
     notes: str | None = None
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
 
 
 class TenantCreate(TenantContact):
@@ -59,6 +61,8 @@ class TenantOut(BaseModel):
     contact_title: str | None
     address: str | None
     notes: str | None
+    latitude: float | None
+    longitude: float | None
     key_assignments: dict = {}
     running_version: str | None
     target_version: str | None
@@ -123,6 +127,8 @@ class ReleaseCreate(BaseModel):
     version: str = Field(min_length=1, max_length=64)
     backend_image: str | None = None
     frontend_image: str | None = None
+    backend_digest: str | None = Field(default=None, pattern=r"^sha256:[a-f0-9]{64}$")
+    frontend_digest: str | None = Field(default=None, pattern=r"^sha256:[a-f0-9]{64}$")
     db_revision: str | None = None
     min_db_revision: str | None = None
     notes: str | None = None
@@ -135,6 +141,8 @@ class ReleaseOut(BaseModel):
     version: str
     backend_image: str
     frontend_image: str
+    backend_digest: str | None
+    frontend_digest: str | None
     db_revision: str | None
     min_db_revision: str | None
     notes: str | None

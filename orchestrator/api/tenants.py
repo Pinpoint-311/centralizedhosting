@@ -149,6 +149,35 @@ def resume_tenant(
     return _set_lifecycle(db, tenant, "active", actor)
 
 
+@router.post("/{tenant_id}/take-offline", response_model=TenantOut)
+def take_tenant_offline(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    actor: str = Depends(require_panel_token),
+):
+    """Take the instance offline while retaining ALL data (DB, PII, uploads,
+    KMS key, secrets). Reversible — not a decommission."""
+    tenant = _get_tenant(db, tenant_id)
+    if tenant.status not in (TenantStatus.ACTIVE, TenantStatus.SUSPENDED):
+        raise HTTPException(409, f"Only active/suspended tenants can be taken offline (is {tenant.status})")
+    provisioner.take_offline(db, tenant, actor)
+    return tenant
+
+
+@router.post("/{tenant_id}/bring-online", response_model=TenantOut)
+def bring_tenant_online(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    actor: str = Depends(require_panel_token),
+):
+    """Bring an offline instance back up with all data intact."""
+    tenant = _get_tenant(db, tenant_id)
+    if tenant.status != TenantStatus.OFFLINE:
+        raise HTTPException(409, f"Only offline tenants can be brought online (is {tenant.status})")
+    provisioner.bring_online(db, tenant, actor)
+    return tenant
+
+
 @router.post("/{tenant_id}/decommission", response_model=TenantOut)
 def decommission_tenant(
     tenant_id: str,

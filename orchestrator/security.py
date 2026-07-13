@@ -8,20 +8,28 @@ import secrets as pysecrets
 from datetime import datetime, timedelta, timezone
 
 from cryptography.fernet import Fernet
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Request
 
 from orchestrator.config import settings
 
 
 # ---------------------------------------------------------------- operator auth
 
-def require_panel_token(x_panel_token: str = Header(default="")) -> str:
+def require_panel_token(request: Request, x_panel_token: str = Header(default="")) -> str:
     """Operator auth for every panel API route. Fails closed when unconfigured;
-    constant-time compare per the plan's A4 guidance."""
+    constant-time compare per the plan's A4 guidance.
+
+    Returns the operator identity for the audit trail: when the deployment sets
+    OPERATOR_HEADER (populated by a trusted OIDC/SSO reverse proxy), the real
+    authenticated user is recorded; otherwise a generic label."""
     if not settings.panel_api_token:
         raise HTTPException(503, "Panel API token not configured — set PANEL_API_TOKEN")
     if not hmac.compare_digest(x_panel_token, settings.panel_api_token):
         raise HTTPException(401, "Invalid panel token")
+    if settings.operator_header:
+        who = request.headers.get(settings.operator_header, "").strip()
+        if who:
+            return who[:150]
     return "panel-operator"
 
 

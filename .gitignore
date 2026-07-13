@@ -10,5 +10,6 @@ tenants/
 # Panel UI build artifacts (built in Docker/CI; dashboard.html is the fallback)
 panel-ui/node_modules/
 panel-ui/dist/
+panel-ui/*.tsbuildinfo
 orchestrator/static/index.html
 orchestrator/static/assets/

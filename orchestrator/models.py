@@ -27,9 +27,10 @@ class TenantStatus:
     PENDING = "pending"
     PROVISIONING = "provisioning"
     ACTIVE = "active"
-    SUSPENDED = "suspended"
+    SUSPENDED = "suspended"      # app up, read-only 503 banner (soft pause)
+    OFFLINE = "offline"          # stack stopped; all data/PII/KMS retained
     FAILED = "failed"
-    DECOMMISSIONED = "decommissioned"
+    DECOMMISSIONED = "decommissioned"  # crypto-shred, irreversible
 
 
 class Tenant(Base):
@@ -53,6 +54,10 @@ class Tenant(Base):
     contact_title: Mapped[str | None] = mapped_column(String(128), default=None)
     address: Mapped[str | None] = mapped_column(Text, default=None)
     notes: Mapped[str | None] = mapped_column(Text, default=None)
+
+    # Optional location for the state map view (decimal degrees; metadata only).
+    latitude: Mapped[float | None] = mapped_column(default=None)
+    longitude: Mapped[float | None] = mapped_column(default=None)
 
     # Who provides each assignable API key (service_id -> "state"|"town").
     # Overrides on top of key_catalog defaults; set once, honored thereafter.
@@ -155,6 +160,11 @@ class Release(Base):
     version: Mapped[str] = mapped_column(String(64), unique=True)
     backend_image: Mapped[str] = mapped_column(String(255))
     frontend_image: Mapped[str] = mapped_column(String(255))
+    # Immutable content digests (sha256:...). When set, stacks pin the image by
+    # digest instead of the mutable tag — the government-correct supply-chain
+    # posture (verifiable, tamper-evident, no "latest" drift).
+    backend_digest: Mapped[str | None] = mapped_column(String(80), default=None)
+    frontend_digest: Mapped[str | None] = mapped_column(String(80), default=None)
     db_revision: Mapped[str | None] = mapped_column(String(64), default=None)
     # Oldest Alembic revision this build can run against (expand/contract rule).
     min_db_revision: Mapped[str | None] = mapped_column(String(64), default=None)

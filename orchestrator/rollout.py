@@ -113,7 +113,13 @@ def _upgrade_step(db: Session, step: RolloutStep, release: Release, probe: Healt
         return False
 
     tenant.target_version = release.version
-    stack.render_stack(tenant, _secrets_bundle(db, tenant), release.version)
+    stack.render_stack(
+        tenant,
+        _secrets_bundle(db, tenant),
+        release.version,
+        backend_digest=release.backend_digest,
+        frontend_digest=release.frontend_digest,
+    )
     if not settings.apply_stacks:
         step.status = "unverified"
         step.detail = "stack re-rendered; apply disabled so health not verified"
@@ -151,7 +157,9 @@ def _rollback_step(db: Session, step: RolloutStep) -> None:
         step.detail = ((step.detail or "") + " | no previous version recorded, left as-is").strip()
         return
     tenant.target_version = previous
-    stack.render_stack(tenant, _secrets_bundle(db, tenant), previous)
+    from orchestrator.provisioner import render_for_tenant
+
+    render_for_tenant(db, tenant, previous)
     if settings.apply_stacks:
         try:
             stack.apply_stack(tenant)

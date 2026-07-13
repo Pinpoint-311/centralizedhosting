@@ -34,12 +34,31 @@ operator workflow:
 - **Program Overview** — status/version charts, drift, per-town health, telemetry poll.
 - **Municipalities** — searchable list + a 5-step **Add municipality** wizard
   (identity → subdomain-or-custom-domain → contact → API-key matrix → review).
-- **Town detail** — lifecycle (provision / suspend / resume / decommission),
-  editable domain + contact, the **key-responsibility matrix** with inline
-  per-town brokered-secret entry, provisioning-job timeline, and break-glass issuance.
-- **Releases** — publish versions and drive canary → promote / rollback.
+- **State Map** — an equal-area U.S. projection (no external tiles/keys) plotting
+  onboarded towns by status, auto-fitting to your municipalities.
+- **Town detail** — lifecycle (provision / suspend / **take offline** / resume /
+  decommission), editable domain + contact + map coordinates, the
+  **key-responsibility matrix** with inline per-town brokered-secret entry,
+  provisioning-job timeline, and break-glass issuance.
+- **Releases** — publish versions (tag or **digest-pinned**) and drive canary → promote / rollback.
 - **Settings** — program identity + the **shared state credential** pool.
 - **Audit** — the central compliance trail.
+
+Accessibility & mobile: labeled form controls, `role="dialog"` modals with focus
+trap + Escape, a skip link, keyboard-operable map markers, `prefers-reduced-motion`
+support, and a responsive layout with a mobile nav drawer.
+
+## Lifecycle: take offline vs. suspend vs. decommission
+
+Three distinct non-active states, so you never have to delete data to pause a town:
+
+- **Suspend** (soft) — the app stays up but returns read-only 503s. Quickest pause.
+- **Take offline** (hard) — `docker compose stop`: the stack is stopped so it
+  consumes no compute and isn't reachable, but **every DB / Redis / uploads
+  volume, the KMS key, and all secrets are retained**. Fully reversible with
+  **Bring online**. This is the "keep all the PII and data, just not active" state.
+- **Decommission** (terminal) — crypto-shreds the KMS key; all PII becomes
+  unrecoverable. Irreversible.
 
 The app is gated by the panel operator token (stored client-side, sent as
 `X-Panel-Token`). It's built into `orchestrator/static/` and served by FastAPI
@@ -153,7 +172,8 @@ may drive Docker, the towns never get the socket).
 | Env var | Default | Description |
 |---|---|---|
 | `PANEL_API_TOKEN` | *(empty — API fails closed)* | Operator auth (`X-Panel-Token` header) |
-| `PANEL_SECRET_KEY` | dev placeholder | Encrypts brokered secrets at rest; signs break-glass tokens |
+| `OPERATOR_HEADER` | *(empty)* | Trusted identity header set by an OIDC/SSO proxy (e.g. `X-Forwarded-User`); recorded as the audit actor. See `GOVERNMENT_PRODUCTION.md`. |
+| `PANEL_SECRET_KEY` | dev placeholder | Encrypts brokered/shared secrets at rest; signs break-glass tokens |
 | `PANEL_DATABASE_URL` | `sqlite:///./panel.db` | Panel DB (Postgres in production) |
 | `BASE_DOMAIN` | `311.example.gov` | Towns live at `<slug>.BASE_DOMAIN` (wildcard DNS + TLS) |
 | `TENANT_ROOT` | `./tenants` | Where per-town Compose stacks are rendered |
@@ -175,8 +195,20 @@ may drive Docker, the towns never get the socket).
 - **Crypto-shred offboarding** — decommission destroys the town's KMS wrapping
   key reference, deletes brokered secrets, and tears down the stack; with the
   app's envelope encryption all PII becomes unrecoverable (plan A7).
-- **Everything audited** — provisioning, rollouts, secrets, lifecycle,
-  break-glass: `GET /api/audit`.
+- **Everything audited** — provisioning, rollouts, secrets, lifecycle
+  (incl. take-offline), break-glass: `GET /api/audit`.
+- **Supply chain** — releases can pin images by immutable `sha256:` digest
+  (`image@sha256:…`), and the registry is configurable for a private/mirrored one.
+
+### Government production
+
+`GOVERNMENT_PRODUCTION.md` answers "is this the right way to do it for
+government?" head-on — where the state's secrets live, where the app images come
+from, and exactly which operational controls (KMS-backed key management, private
+signed-image registry, OIDC/MFA/RBAC, hash-chained audit) must be added by the
+deployment before an ATO. Short version: **the architecture is right; several
+controls are deliberately deployment-supplied and not yet enforced in code** —
+so don't treat the panel as ATO-ready as shipped.
 
 Break-glass tokens are HMAC-signed with the target town's own
 `PROVISIONING_TOKEN` (a secret that town instance already holds), so the app

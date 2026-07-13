@@ -34,7 +34,21 @@ def caddy_sites_dir() -> Path:
     return settings.tenant_root / "_caddy"
 
 
-def render_stack(tenant: Tenant, secrets: dict[str, str], version: str) -> Path:
+def _image_ref(image: str, version: str, digest: str | None) -> str:
+    """Pin by immutable digest when available (image@sha256:…), else fall back
+    to the mutable tag. Digest pinning is the government-correct posture."""
+    if digest:
+        return f"{image}@{digest}"
+    return f"{image}:{version}"
+
+
+def render_stack(
+    tenant: Tenant,
+    secrets: dict[str, str],
+    version: str,
+    backend_digest: str | None = None,
+    frontend_digest: str | None = None,
+) -> Path:
     """Write the town's compose dir + host-Caddy site block. Idempotent —
     re-rendering with the same inputs produces the same files."""
     target = tenant_dir(tenant)
@@ -52,6 +66,8 @@ def render_stack(tenant: Tenant, secrets: dict[str, str], version: str) -> Path:
         "version": version,
         "backend_image": settings.backend_image,
         "frontend_image": settings.frontend_image,
+        "backend_ref": _image_ref(settings.backend_image, version, backend_digest),
+        "frontend_ref": _image_ref(settings.frontend_image, version, frontend_digest),
         "external_host": tenant.external_host,
         "secrets": secrets,
         "state_provided_keys": brokered,
@@ -83,6 +99,37 @@ def apply_stack(tenant: Tenant) -> str:
     )
     if result.returncode != 0:
         raise RuntimeError(f"compose up failed for {tenant.slug}: {result.stderr[-2000:]}")
+    return result.stdout[-2000:]
+
+
+def stop_stack(tenant: Tenant) -> str:
+    """`docker compose stop` — take the town offline. Stops the containers so
+    they consume no compute, but keeps containers AND named volumes (DB, Redis,
+    uploads) intact. Nothing is deleted; `start_stack` brings it back."""
+    result = subprocess.run(
+        ["docker", "compose", "--project-name", f"pp311-{tenant.slug}", "stop"],
+        cwd=tenant_dir(tenant),
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"compose stop failed for {tenant.slug}: {result.stderr[-2000:]}")
+    return result.stdout[-2000:]
+
+
+def start_stack(tenant: Tenant) -> str:
+    """`docker compose start` — bring a stopped (offline) town back online with
+    all its data intact."""
+    result = subprocess.run(
+        ["docker", "compose", "--project-name", f"pp311-{tenant.slug}", "start"],
+        cwd=tenant_dir(tenant),
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"compose start failed for {tenant.slug}: {result.stderr[-2000:]}")
     return result.stdout[-2000:]
 
 
