@@ -1,38 +1,38 @@
 import { useEffect, useState } from 'react'
-import { Landmark, Building2, KeyRound, Info } from 'lucide-react'
+import { Building2, KeyRound, Info, Check, Users } from 'lucide-react'
 import { api } from '../lib/api'
-import type { KeyCatalog } from '../lib/types'
-import { Card, Spinner } from '../components/ui'
+import type { KeyCatalog, SecretOut } from '../lib/types'
+import { Badge, Button, Card, Spinner } from '../components/ui'
+import { OWNER_META } from '../components/KeyMatrix'
 import { PageHeader } from '../components/Shell'
+import { getBaseDomain } from '../lib/config'
 import { useToast } from '../components/Toast'
 
-import { getBaseDomain } from '../lib/config'
-
-/**
- * Settings surfaces the fleet-wide defaults and the key catalog. The base
- * domain and panel crypto are process env on the control plane (shown here
- * read-only); the default owner per service comes from the catalog and is the
- * starting point for every new town's matrix.
- */
 export function Settings() {
   const BASE_DOMAIN = getBaseDomain()
   const toast = useToast()
   const [catalog, setCatalog] = useState<KeyCatalog | null>(null)
+  const [creds, setCreds] = useState<SecretOut[]>([])
 
+  async function loadCreds() {
+    setCreds(await api.listStateCredentials())
+  }
   useEffect(() => {
-    api
-      .keyCatalog()
-      .then(setCatalog)
+    Promise.all([api.keyCatalog(), api.listStateCredentials()])
+      .then(([c, s]) => {
+        setCatalog(c)
+        setCreds(s)
+      })
       .catch((e) => toast.push((e as Error).message, 'error'))
   }, [])
 
   return (
     <div>
-      <PageHeader title="Settings" subtitle="Fleet-wide configuration and defaults." />
+      <PageHeader title="Settings" subtitle="Program-wide configuration and shared credentials." />
 
       <div className="space-y-4">
         <Card>
-          <h3 className="font-semibold text-white mb-4">Fleet identity</h3>
+          <h3 className="font-semibold text-white mb-4">Program identity</h3>
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <div className="text-xs text-white/40 uppercase tracking-wide mb-1">Base domain</div>
@@ -58,36 +58,119 @@ export function Settings() {
         {!catalog ? (
           <Spinner />
         ) : (
-          <Card>
-            <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
-              <KeyRound className="w-5 h-5" /> Default key responsibility
-            </h3>
-            <p className="text-sm text-white/50 mb-4">
-              The starting point for each new municipality's matrix. Flip any of these per town when
-              you add or edit it.
-            </p>
-            <div className="space-y-2">
-              {catalog.assignable.map((s) => (
-                <div key={s.id} className="flex items-center justify-between py-2 border-b border-white/5">
-                  <div>
-                    <div className="text-white font-medium">{s.label}</div>
-                    <code className="text-[11px] text-white/40">{s.keys.join(', ')}</code>
-                  </div>
-                  {s.default_owner === 'state' ? (
-                    <span className="inline-flex items-center gap-1.5 text-sm text-indigo-200">
-                      <Landmark className="w-4 h-4" /> State provides
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 text-sm text-white/60">
-                      <Building2 className="w-4 h-4" /> Town provides
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </Card>
+          <>
+            <SharedCredentials catalog={catalog} creds={creds} onChange={loadCreds} />
+
+            <Card>
+              <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
+                <KeyRound className="w-5 h-5" /> Default key responsibility
+              </h3>
+              <p className="text-sm text-white/50 mb-4">
+                The starting point for each new municipality's matrix. Flip any of these per town
+                when you add or edit it.
+              </p>
+              <div className="space-y-2">
+                {catalog.assignable.map((s) => {
+                  const meta = OWNER_META[s.default_owner]
+                  const Icon = meta?.icon || Building2
+                  return (
+                    <div key={s.id} className="flex items-center justify-between py-2 border-b border-white/5">
+                      <div>
+                        <div className="text-white font-medium">{s.label}</div>
+                        <code className="text-[11px] text-white/40">{s.keys.join(', ')}</code>
+                      </div>
+                      <span
+                        className={`inline-flex items-center gap-1.5 text-sm ${
+                          s.default_owner === 'town' ? 'text-white/60' : 'text-indigo-200'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" /> {meta?.label || s.default_owner}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </Card>
+          </>
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * Enter each shared state credential ONCE. Every town whose matrix sets that
+ * service to "State · shared" plugs into this value at provision time.
+ */
+function SharedCredentials({
+  catalog,
+  creds,
+  onChange,
+}: {
+  catalog: KeyCatalog
+  creds: SecretOut[]
+  onChange: () => void
+}) {
+  const toast = useToast()
+  const [values, setValues] = useState<Record<string, string>>({})
+  const [savingKey, setSavingKey] = useState('')
+  const configured = new Set(creds.map((c) => c.key_name))
+
+  async function save(key: string) {
+    if (!values[key]) return
+    setSavingKey(key)
+    try {
+      await api.putStateCredential(key, values[key])
+      setValues((v) => ({ ...v, [key]: '' }))
+      toast.push(`${key} stored in the shared pool (encrypted)`)
+      onChange()
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setSavingKey('')
+    }
+  }
+
+  const rows = catalog.assignable.flatMap((s) =>
+    s.keys.map((k) => ({ key: k, label: s.label })),
+  )
+
+  return (
+    <Card>
+      <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
+        <Users className="w-5 h-5" /> Shared state credentials
+      </h3>
+      <p className="text-sm text-white/50 mb-4">
+        Enter a credential once here and every town set to <b>State · shared</b> for that service
+        plugs into it — no per-town re-entry. Stored encrypted at rest; write-only.
+      </p>
+      <div className="space-y-3">
+        {rows.map(({ key, label }) => (
+          <div key={key} className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <div className="sm:w-64 shrink-0">
+              <div className="text-sm text-white font-medium">{label}</div>
+              <code className="text-[11px] text-white/40">{key}</code>
+            </div>
+            <div className="flex-1 flex gap-2">
+              <input
+                type="password"
+                className="glass-input"
+                placeholder={configured.has(key) ? '•••••••• (set — enter to replace)' : 'Enter shared value'}
+                value={values[key] || ''}
+                onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
+              />
+              <Button size="sm" onClick={() => save(key)} isLoading={savingKey === key} disabled={!values[key]}>
+                Save
+              </Button>
+            </div>
+            {configured.has(key) && (
+              <Badge variant="success">
+                <Check className="w-3 h-3" /> set
+              </Badge>
+            )}
+          </div>
+        ))}
+      </div>
+    </Card>
   )
 }

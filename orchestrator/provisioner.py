@@ -67,11 +67,44 @@ def _ensure_secret(db: Session, tenant: Tenant, key: str) -> tuple[str, bool]:
     return value, True
 
 
+def get_state_credential(db: Session, key: str) -> str | None:
+    from orchestrator.models import StateCredential
+
+    row = db.execute(
+        select(StateCredential).where(StateCredential.key_name == key)
+    ).scalar_one_or_none()
+    return decrypt_value(row.encrypted_value) if row else None
+
+
+def set_state_credential(db: Session, key: str, value: str) -> None:
+    from orchestrator.models import StateCredential
+
+    row = db.execute(
+        select(StateCredential).where(StateCredential.key_name == key)
+    ).scalar_one_or_none()
+    if row:
+        row.encrypted_value = encrypt_value(value)
+    else:
+        db.add(StateCredential(key_name=key, encrypted_value=encrypt_value(value)))
+    db.flush()
+
+
 def _secrets_bundle(db: Session, tenant: Tenant) -> dict[str, str]:
+    """Everything injected into the town's env: per-tenant platform secrets
+    (infra + state_per_town service keys) plus the shared-pool values for any
+    service this town assigned to ``state_shared``."""
+    from orchestrator.key_catalog import shared_keys
+
     rows = db.execute(
         select(PlatformSecret).where(PlatformSecret.tenant_id == tenant.id)
     ).scalars().all()
-    return {r.key_name: decrypt_value(r.encrypted_value) for r in rows}
+    bundle = {r.key_name: decrypt_value(r.encrypted_value) for r in rows}
+
+    for key in shared_keys(tenant.key_assignments):
+        value = get_state_credential(db, key)
+        if value:
+            bundle[key] = value
+    return bundle
 
 
 def _target_version(db: Session, tenant: Tenant) -> str:

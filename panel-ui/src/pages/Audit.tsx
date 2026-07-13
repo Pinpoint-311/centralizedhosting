@@ -35,7 +35,7 @@ export function Audit() {
     <div>
       <PageHeader
         title="Audit Log"
-        subtitle="Every provisioning, rollout, secret, lifecycle, and break-glass action across the fleet."
+        subtitle="Every provisioning, rollout, secret, lifecycle, and break-glass action across the program."
         actions={
           <Button variant="secondary" onClick={load} leftIcon={<RefreshCw className="w-4 h-4" />}>
             Refresh

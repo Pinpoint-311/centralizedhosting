@@ -133,6 +133,19 @@ class PlatformSecret(Base):
     tenant: Mapped[Tenant] = relationship(back_populates="secrets")
 
 
+class StateCredential(Base):
+    """Shared state credential pool — entered once, injected into every town
+    whose key-responsibility matrix sets the owning service to ``state_shared``.
+    Encrypted at rest with the panel key; write-only (never returned)."""
+
+    __tablename__ = "state_credentials"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    key_name: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    encrypted_value: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class Release(Base):
     """B3 — a published, versioned app image plus its DB compatibility stamp."""
 

@@ -82,7 +82,14 @@ export const api = {
       assignments,
     }),
 
-  // brokered secrets
+  // shared state credential pool (entered once, injected into shared towns)
+  listStateCredentials: () => req<SecretOut[]>('GET', '/api/state-credentials'),
+  putStateCredential: (key: string, value: string) =>
+    req<SecretOut>('PUT', `/api/state-credentials/${encodeURIComponent(key)}`, { value }),
+  deleteStateCredential: (key: string) =>
+    req<void>('DELETE', `/api/state-credentials/${encodeURIComponent(key)}`),
+
+  // brokered per-town secrets
   listSecrets: (id: string) => req<SecretOut[]>('GET', `/api/tenants/${id}/secrets`),
   putSecret: (id: string, key: string, value: string) =>
     req<SecretOut>('PUT', `/api/tenants/${id}/secrets/${encodeURIComponent(key)}`, { value }),
