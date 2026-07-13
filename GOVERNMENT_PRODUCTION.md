@@ -44,7 +44,14 @@ same pattern the app already uses for resident PII), not a static env var:
 - **Also:** enable Postgres TDE / encrypted volumes, restrict DB network access
   to the panel only, rotate `PANEL_SECRET_KEY` with re-encryption support.
 
-Status: ⚠️ **at-rest encryption present; KMS-backed key management is a TODO.**
+Ciphertext is now **key-version tagged** (`v<n>:…`) and the panel supports
+**rotation**: bump `PANEL_KEK_VERSION`, then `POST /api/maintenance/reencrypt-secrets`
+(or Settings → "Re-encrypt secrets") rewrites every stored secret under the new
+key while still decrypting the old ones. The `KEY_PROVIDER` seam
+(`orchestrator/key_provider.py`) is where `local` becomes `kms`.
+
+Status: ✅ **at-rest encryption + versioned rotation**; ⚠️ **KMS-backed key
+material (`KEY_PROVIDER=kms`) is the remaining wiring.**
 
 ---
 
@@ -88,23 +95,26 @@ enforced by the panel.**
 
 ## 3. Operator authentication & authorization
 
-Today: a single shared bearer token (`PANEL_API_TOKEN`, `X-Panel-Token`),
-constant-time compared, fail-closed. Good enough to gate the API; **not
-sufficient for government** — it's one shared credential with no per-operator
-identity, MFA, or least-privilege roles.
+The API is gated by a shared bearer token (`PANEL_API_TOKEN`, `X-Panel-Token`),
+constant-time compared, fail-closed. On top of that there is now **RBAC**:
 
-Required for production:
+- **Roles** viewer < operator < approver < admin. Reads need viewer; mutations
+  need operator; **decommission and break-glass issuance need approver.**
+- **Effective role** comes from a trusted groups header the OIDC/SSO proxy
+  injects — `ROLES_HEADER` (e.g. `X-Forwarded-Groups`) mapped via
+  `ROLE_GROUP_MAP` (JSON). With no groups header, everyone gets
+  `DEFAULT_OPERATOR_ROLE` (default `admin` for single-token dev; set to
+  `viewer` in production and grant roles by group).
+- **Operator identity** for the audit trail comes from `OPERATOR_HEADER`
+  (e.g. `X-Forwarded-User`) — the real user, not a generic label.
 
-- Front the panel with an **OIDC/SSO reverse proxy** (agency IdP: Login.gov,
-  Okta-for-Gov, Entra Gov) enforcing **MFA**. Set `OPERATOR_HEADER` to the
-  trusted identity header the proxy injects (e.g. `X-Forwarded-User`) — the
-  audit trail then records the **real operator** instead of a generic label
-  (`orchestrator/security.py.require_panel_token`).
-- Add **RBAC** (viewer / operator / approver) — not yet modeled.
-- Consider a second-person approval for destructive actions (decommission).
+Required for production: front the panel with an **OIDC/SSO reverse proxy**
+(Login.gov, Okta-for-Gov, Entra Gov) enforcing **MFA**, and map your IdP groups
+to roles. The shared token alone is still not sufficient — it must sit behind
+that proxy.
 
-Status: ✅ **fail-closed token + operator-identity capture for audit**;
-⚠️ **OIDC/MFA/RBAC must be supplied by the deployment; RBAC not yet in code.**
+Status: ✅ **fail-closed token + RBAC + operator-identity capture**;
+⚠️ **the OIDC/MFA proxy itself is deployment-supplied.**
 
 ---
 
@@ -115,11 +125,13 @@ take-offline), and break-glass action is recorded in `audit_log` with actor,
 action, tenant, and metadata (`GET /api/audit`). Break-glass grants are
 time-boxed, reason-required, and audited on both the panel and the town.
 
-For government, add: **tamper-evident hashing** (the app's town-side audit is
-hash-chained; the panel's is not yet), immutable off-host log shipping
-(WORM/SIEM), and retention aligned to the records schedule.
+The trail is now **hash-chained** (each entry binds to the previous one's hash);
+`GET /api/audit/verify` (Settings → "Verify audit chain") recomputes it and
+pinpoints any insertion, edit, or deletion. For government, still add immutable
+off-host shipping (WORM/SIEM) and retention aligned to the records schedule.
 
-Status: ✅ **complete central audit**; ⚠️ **hash-chaining + WORM shipping TODO.**
+Status: ✅ **complete central audit + tamper-evident hash chain**;
+⚠️ **WORM/SIEM shipping is deployment-supplied.**
 
 ---
 
@@ -141,13 +153,17 @@ Status: ✅ **complete central audit**; ⚠️ **hash-chaining + WORM shipping T
 
 | Control | Code today | Before government ATO |
 |---|---|---|
-| Secrets at rest | ✅ Fernet, write-only | ⚠️ KMS/HSM-backed key |
-| Image provenance | ✅ configurable registry + digest pinning | ⚠️ private mirror, cosign verify, scan |
-| Operator authN | ✅ fail-closed token + identity header | ⚠️ OIDC + MFA proxy |
-| Operator authZ | — | ⚠️ RBAC + dual-approval |
-| Audit | ✅ central, break-glass | ⚠️ hash-chain + WORM |
+| Secrets at rest | ✅ Fernet, write-only, **versioned + rotatable** (`/api/maintenance/reencrypt-secrets`) | ⚠️ point `KEY_PROVIDER=kms` at a KMS/HSM (seam in `key_provider.py`) |
+| Image provenance | ✅ configurable registry, digest pinning, **`REQUIRE_SIGNED_IMAGES` gate** | ⚠️ private mirror, cosign verify at admission, scan |
+| Operator authN | ✅ fail-closed token + **OIDC identity header** (`OPERATOR_HEADER`) | ⚠️ deploy the OIDC + MFA proxy |
+| Operator authZ | ✅ **RBAC** (viewer/operator/approver/admin via `ROLES_HEADER`+`ROLE_GROUP_MAP`); decommission/break-glass require approver | ⚠️ map groups to roles in your IdP; consider dual-approval on decommission |
+| Audit | ✅ central, break-glass, **hash-chained + `/api/audit/verify`** | ⚠️ ship to WORM/SIEM off-host |
 | Tenant isolation | ✅ silo | ✅ |
 | Crypto-shred deletion | ✅ | ✅ |
-| Transport | deploy TLS (Caddy) | ✅ enforce mTLS to registry/DB |
+| Transport | deploy TLS (Caddy) | ⚠️ enforce mTLS to registry/DB |
 
-The seams to harden each item are named above — none require re-architecting.
+Since the first draft, RBAC, tamper-evident audit, key rotation, and the
+signed-image gate moved from "TODO" to implemented (see the ✅ column). The
+remaining ⚠️ items are deployment wiring (KMS credentials, the OIDC proxy, image
+signing infrastructure, WORM log storage) — the code seams for each are named
+above and none require re-architecting.

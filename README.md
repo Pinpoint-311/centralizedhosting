@@ -40,9 +40,17 @@ operator workflow:
   decommission), editable domain + contact + map coordinates, the
   **key-responsibility matrix** with inline per-town brokered-secret entry,
   provisioning-job timeline, and break-glass issuance.
+- **Cost & Chargeback** — estimated external-API spend per town, split state-borne vs town-borne via the key matrix; CSV export.
+- **Uptime & SLA** — per-town uptime % and incident counts from telemetry reachability; CSV export.
+- **Alerts** — fleet monitoring (down, version drift) with a sidebar badge, acknowledge, and optional Slack webhook.
+- **Hosting Requests** — an approval inbox for municipalities that submit the public `/request` self-service form.
 - **Releases** — publish versions (tag or **digest-pinned**) and drive canary → promote / rollback.
-- **Settings** — program identity + the **shared state credential** pool.
-- **Audit** — the central compliance trail.
+- **Settings** — program identity, shared state credentials, and a **Security** card (identity/role, key provider, audit-chain verify, key rotation).
+- **Audit** — the central, **hash-chained** compliance trail.
+
+Throughout: **RBAC-aware UI** (privileged actions hidden below the required
+role), a **⌘K command palette**, **light/dark themes**, bulk CSV onboarding,
+tag filtering, per-town **stack preview**, and a 30s auto-refreshing overview.
 
 Accessibility & mobile: labeled form controls, `role="dialog"` modals with focus
 trap + Escape, a skip link, keyboard-operable map markers, `prefers-reduced-motion`
@@ -181,6 +189,12 @@ may drive Docker, the towns never get the socket).
 | `BACKEND_IMAGE` / `FRONTEND_IMAGE` | GHCR pinpoint-311 images | Default image repos for releases |
 | `CANARY_COUNT` | `1` | Default canary batch size |
 | `BREAK_GLASS_MAX_MINUTES` | `60` | Hard cap on break-glass grant lifetime |
+| `DEFAULT_OPERATOR_ROLE` | `admin` | Role when no groups header is present. Set `viewer` in production. |
+| `ROLES_HEADER` / `ROLE_GROUP_MAP` | *(empty)* | Trusted groups header + JSON group→role map for RBAC |
+| `KEY_PROVIDER` / `PANEL_KEK_VERSION` | `local` / `1` | Secret-key provider (`local`\|`kms`) + active key version for rotation |
+| `REQUIRE_SIGNED_IMAGES` | `false` | Refuse to provision a release that isn't digest-pinned |
+| `ALERT_WEBHOOK_URL` / `ALERT_POLL_SECONDS` | *(empty)* / `0` | Slack-compatible alert webhook + background eval cadence |
+| `PUBLIC_REQUESTS_ENABLED` | `false` | Enable the unauthenticated `/request` self-service intake |
 
 ## Security posture
 
