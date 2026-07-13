@@ -1,13 +1,19 @@
 import type {
+  Alert,
   AuditEntry,
   BreakGlassGrant,
+  BulkResultRow,
+  CostSummary,
   FleetSummary,
   KeyCatalog,
   ProvisionJob,
   Release,
   Rollout,
   SecretOut,
+  SlaSummary,
   Tenant,
+  TownRequest,
+  WhoAmI,
 } from './types'
 
 const TOKEN_KEY = 'pp311_panel_token'
@@ -118,4 +124,31 @@ export const api = {
 
   // audit
   audit: (params = '') => req<AuditEntry[]>('GET', `/api/audit${params}`),
+  auditVerify: () => req<{ ok: boolean; entries?: number; broken_at_seq?: number; reason?: string }>('GET', '/api/audit/verify'),
+
+  // identity / admin
+  whoami: () => req<WhoAmI>('GET', '/api/whoami'),
+  reencryptSecrets: () => req<{ reencrypted: number; key_version: number }>('POST', '/api/maintenance/reencrypt-secrets'),
+
+  // insights
+  cost: () => req<CostSummary>('GET', '/api/cost/summary'),
+  sla: (days = 30) => req<SlaSummary>('GET', `/api/sla/summary?days=${days}`),
+  alerts: (openOnly = true) => req<Alert[]>('GET', `/api/alerts?open_only=${openOnly}`),
+  evaluateAlerts: () => req<{ new_alerts: number }>('POST', '/api/alerts/evaluate'),
+  ackAlert: (id: string) => req<Alert>('POST', `/api/alerts/${id}/ack`),
+
+  // bulk onboarding
+  bulkCreate: (tenants: Record<string, unknown>[]) =>
+    req<BulkResultRow[]>('POST', '/api/tenants/bulk', { tenants }),
+
+  // stack preview
+  stackPreview: (id: string) =>
+    req<{ version: string; compose: string; env: string }>('GET', `/api/tenants/${id}/stack-preview`),
+
+  // self-service requests
+  listRequests: (status = '') =>
+    req<TownRequest[]>('GET', `/api/requests${status ? `?status=${status}` : ''}`),
+  submitRequest: (body: Record<string, unknown>) => req<TownRequest>('POST', '/api/requests', body),
+  approveRequest: (id: string) => req<Tenant>('POST', `/api/requests/${id}/approve`),
+  rejectRequest: (id: string) => req<TownRequest>('POST', `/api/requests/${id}/reject`),
 }

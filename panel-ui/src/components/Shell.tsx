@@ -1,23 +1,34 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
   Building2,
   Map as MapIcon,
+  DollarSign,
+  Activity,
+  BellRing,
+  Inbox,
   Rocket,
   ScrollText,
   Settings,
   LogOut,
   Menu,
   X,
+  Sun,
+  Moon,
 } from 'lucide-react'
-import { clearToken } from '../lib/api'
+import { api, clearToken } from '../lib/api'
+import { useTheme } from '../lib/session'
 import { Logo } from './Logo'
 
 const NAV = [
   { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: '/towns', label: 'Municipalities', icon: Building2 },
   { to: '/map', label: 'State Map', icon: MapIcon },
+  { to: '/cost', label: 'Cost & Chargeback', icon: DollarSign },
+  { to: '/sla', label: 'Uptime & SLA', icon: Activity },
+  { to: '/alerts', label: 'Alerts', icon: BellRing, badge: 'alerts' },
+  { to: '/requests', label: 'Hosting Requests', icon: Inbox },
   { to: '/releases', label: 'Releases', icon: Rocket },
   { to: '/audit', label: 'Audit Log', icon: ScrollText },
   { to: '/settings', label: 'Settings', icon: Settings },
@@ -25,7 +36,13 @@ const NAV = [
 
 export function Shell({ children, onLogout }: { children: React.ReactNode; onLogout: () => void }) {
   const [open, setOpen] = useState(false)
+  const [alertCount, setAlertCount] = useState(0)
+  const [theme, setTheme] = useTheme()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    api.alerts(true).then((a) => setAlertCount(a.length)).catch(() => setAlertCount(0))
+  }, [])
 
   function logout() {
     clearToken()
@@ -43,7 +60,7 @@ export function Shell({ children, onLogout }: { children: React.ReactNode; onLog
         </div>
       </div>
 
-      <nav aria-label="Primary" className="flex-1 px-3 space-y-1">
+      <nav aria-label="Primary" className="flex-1 px-3 space-y-1 overflow-y-auto">
         {NAV.map((item) => (
           <NavLink
             key={item.to}
@@ -58,13 +75,26 @@ export function Shell({ children, onLogout }: { children: React.ReactNode; onLog
               }`
             }
           >
-            <item.icon className="w-5 h-5" />
-            {item.label}
+            <item.icon className="w-5 h-5 shrink-0" />
+            <span className="flex-1">{item.label}</span>
+            {item.badge === 'alerts' && alertCount > 0 && (
+              <span className="text-[11px] font-semibold bg-red-500/80 text-white rounded-full px-1.5 min-w-[1.25rem] text-center">
+                {alertCount}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>
 
-      <div className="p-3 border-t border-white/10">
+      <div className="p-3 border-t border-white/10 space-y-1">
+        <button
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/60 hover:bg-white/5 hover:text-white transition-colors"
+          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+        >
+          {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          {theme === 'dark' ? 'Light theme' : 'Dark theme'}
+        </button>
         <button
           onClick={logout}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/60 hover:bg-white/5 hover:text-white transition-colors"

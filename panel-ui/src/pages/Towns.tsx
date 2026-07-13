@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Building2, Plus, Search, ArrowRight, ArrowLeft, Check, Globe, Link2 } from 'lucide-react'
+import { Building2, Plus, Search, ArrowRight, ArrowLeft, Check, Globe, Link2, Upload, X } from 'lucide-react'
 import { api } from '../lib/api'
-import type { KeyCatalog, Tenant } from '../lib/types'
+import { useSession } from '../lib/session'
+import type { BulkResultRow, KeyCatalog, Tenant } from '../lib/types'
 import {
   Badge,
   Button,
@@ -45,10 +46,13 @@ function slugify(s: string) {
 
 export function Towns() {
   const BASE_DOMAIN = getBaseDomain()
+  const { can } = useSession()
   const [tenants, setTenants] = useState<Tenant[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
+  const [tagFilter, setTagFilter] = useState<string | null>(null)
   const [showAdd, setShowAdd] = useState(false)
+  const [showBulk, setShowBulk] = useState(false)
   const toast = useToast()
 
   async function load() {
@@ -64,14 +68,19 @@ export function Towns() {
     load()
   }, [])
 
+  const allTags = useMemo(
+    () => Array.from(new Set(tenants.flatMap((t) => t.tags || []))).sort(),
+    [tenants],
+  )
   const filtered = useMemo(
     () =>
       tenants.filter(
         (t) =>
-          t.name.toLowerCase().includes(query.toLowerCase()) ||
-          t.slug.includes(query.toLowerCase()),
+          (t.name.toLowerCase().includes(query.toLowerCase()) ||
+            t.slug.includes(query.toLowerCase())) &&
+          (!tagFilter || (t.tags || []).includes(tagFilter)),
       ),
-    [tenants, query],
+    [tenants, query, tagFilter],
   )
 
   return (
@@ -80,9 +89,16 @@ export function Towns() {
         title="Municipalities"
         subtitle="Towns and cities hosted on this control plane."
         actions={
-          <Button onClick={() => setShowAdd(true)} leftIcon={<Plus className="w-4 h-4" />}>
-            Add municipality
-          </Button>
+          can('operator') && (
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => setShowBulk(true)} leftIcon={<Upload className="w-4 h-4" />}>
+                Bulk import
+              </Button>
+              <Button onClick={() => setShowAdd(true)} leftIcon={<Plus className="w-4 h-4" />}>
+                Add municipality
+              </Button>
+            </div>
+          )
         }
       />
 
@@ -103,14 +119,36 @@ export function Towns() {
         </Card>
       ) : (
         <>
-          <div className="relative mb-4 max-w-sm">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-            <input
-              className="glass-input pl-10"
-              placeholder="Search municipalities…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+            <div className="relative max-w-sm flex-1">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+              <input
+                className="glass-input pl-10"
+                placeholder="Search municipalities…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                aria-label="Search municipalities"
+              />
+            </div>
+            {allTags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  onClick={() => setTagFilter(null)}
+                  className={`px-2.5 py-1 text-xs rounded-full border ${!tagFilter ? 'bg-indigo-500/30 border-indigo-400/40 text-white' : 'border-white/15 text-white/60 hover:text-white'}`}
+                >
+                  All
+                </button>
+                {allTags.map((tag) => (
+                  <button
+                    key={tag}
+                    onClick={() => setTagFilter(tag)}
+                    className={`px-2.5 py-1 text-xs rounded-full border ${tagFilter === tag ? 'bg-indigo-500/30 border-indigo-400/40 text-white' : 'border-white/15 text-white/60 hover:text-white'}`}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {filtered.map((t, i) => (
@@ -128,9 +166,10 @@ export function Towns() {
                       <Globe className="w-3.5 h-3.5" />
                       {t.custom_domain || `${t.subdomain}.${BASE_DOMAIN}`}
                     </div>
-                    <div className="flex items-center gap-2 mt-3 text-xs text-white/50">
+                    <div className="flex items-center gap-2 mt-3 text-xs text-white/50 flex-wrap">
                       <Badge>{t.plan}</Badge>
                       {t.running_version && <Badge variant="info">v{t.running_version}</Badge>}
+                      {(t.tags || []).map((tag) => <Badge key={tag}>{tag}</Badge>)}
                     </div>
                   </Card>
                 </Link>
@@ -139,6 +178,8 @@ export function Towns() {
           </div>
         </>
       )}
+
+      {showBulk && <BulkImport onClose={() => setShowBulk(false)} onDone={() => { setShowBulk(false); load() }} />}
 
       {showAdd && (
         <AddTownWizard
@@ -447,5 +488,110 @@ function ReviewRow({ label, value }: { label: string; value: string }) {
       <span className="text-white/50 text-sm">{label}</span>
       <span className="text-white text-sm font-medium text-right">{value}</span>
     </div>
+  )
+}
+
+// ------------------------------------------------------------- Bulk import
+
+/**
+ * Paste CSV (or upload a .csv) with headers: name, slug, contact_email,
+ * contact_name, latitude, longitude, tags (tags are ';'-separated). Each row is
+ * created independently; results are reported per row.
+ */
+function BulkImport({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const toast = useToast()
+  const [text, setText] = useState('name,slug,contact_email\n')
+  const [results, setResults] = useState<BulkResultRow[] | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  function parse(): Record<string, unknown>[] {
+    const lines = text.trim().split(/\r?\n/).filter(Boolean)
+    if (lines.length < 2) return []
+    const headers = lines[0].split(',').map((h) => h.trim())
+    return lines.slice(1).map((line) => {
+      const cells = line.split(',')
+      const row: Record<string, unknown> = {}
+      headers.forEach((h, i) => {
+        const v = (cells[i] || '').trim()
+        if (!v) return
+        if (h === 'latitude' || h === 'longitude') row[h] = Number(v)
+        else if (h === 'tags') row[h] = v.split(';').map((t) => t.trim()).filter(Boolean)
+        else row[h] = v
+      })
+      return row
+    })
+  }
+
+  async function importRows() {
+    const rows = parse()
+    if (rows.length === 0) {
+      toast.push('Add at least one data row under the header', 'error')
+      return
+    }
+    setSaving(true)
+    try {
+      setResults(await api.bulkCreate(rows))
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    file.text().then(setText)
+  }
+
+  const okCount = results?.filter((r) => r.ok).length ?? 0
+
+  return (
+    <Modal open onClose={onClose} title="Bulk import municipalities" wide>
+      {results ? (
+        <div>
+          <p className="text-white mb-3">
+            Imported <b className="text-green-300">{okCount}</b> of {results.length} rows.
+          </p>
+          <div className="max-h-80 overflow-y-auto space-y-1">
+            {results.map((r, i) => (
+              <div key={i} className="flex items-center gap-2 text-sm py-1.5 border-b border-white/5">
+                {r.ok ? <Check className="w-4 h-4 text-green-400" /> : <X className="w-4 h-4 text-red-400" />}
+                <code className="text-white/70">{r.slug}</code>
+                {!r.ok && <span className="text-red-300">{r.error}</span>}
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end mt-6">
+            <Button onClick={onDone}>Done</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <p className="text-sm text-white/60">
+            Paste CSV with a header row. Columns: <code>name</code>, <code>slug</code>,{' '}
+            <code>contact_name</code>, <code>contact_email</code>, <code>latitude</code>,{' '}
+            <code>longitude</code>, <code>tags</code> (<code>;</code>-separated). Each row is created
+            independently.
+          </p>
+          <label className="inline-flex items-center gap-2 text-sm text-indigo-300 hover:text-indigo-200 cursor-pointer">
+            <Upload className="w-4 h-4" /> Upload a .csv
+            <input type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} />
+          </label>
+          <Textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            className="font-mono !min-h-[180px] text-sm"
+            aria-label="CSV data"
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button onClick={importRows} isLoading={saving} leftIcon={<Upload className="w-4 h-4" />}>
+              Import
+            </Button>
+          </div>
+        </div>
+      )}
+    </Modal>
   )
 }

@@ -24,6 +24,7 @@ export interface Tenant {
   notes: string | null
   latitude: number | null
   longitude: number | null
+  tags: string[]
   key_assignments: Record<string, string>
   running_version: string | null
   target_version: string | null
@@ -144,9 +145,91 @@ export interface BreakGlassGrant {
 
 export interface AuditEntry {
   id: string
+  seq: number
   actor: string
   action: string
   tenant_id: string | null
   detail: Record<string, unknown>
   created_at: string
+  entry_hash: string
+}
+
+export type Role = 'viewer' | 'operator' | 'approver' | 'admin'
+
+export interface WhoAmI {
+  actor: string
+  role: Role
+  key_provider: string
+  require_signed_images: boolean
+}
+
+export interface CostTownService {
+  service: string
+  bucket: string
+  cost: number
+  borne_by: 'state' | 'town'
+}
+export interface CostTown {
+  id: string
+  slug: string
+  name: string
+  state_borne: number
+  town_borne: number
+  total: number
+  services: CostTownService[]
+}
+export interface CostSummary {
+  fleet_total: number
+  state_borne: number
+  town_borne: number
+  by_service: Record<string, number>
+  towns: CostTown[]
+  note: string
+}
+
+export interface SlaTown {
+  id: string
+  slug: string | null
+  name: string | null
+  checks: number
+  reachable: number
+  uptime_percent: number | null
+  incidents: number
+}
+export interface SlaSummary {
+  period_days: number
+  towns: SlaTown[]
+}
+
+export interface Alert {
+  id: string
+  tenant_id: string | null
+  tenant_slug: string | null
+  kind: string
+  severity: 'info' | 'warning' | 'critical'
+  message: string
+  created_at: string
+  acknowledged_at: string | null
+  acknowledged_by: string | null
+}
+
+export interface BulkResultRow {
+  slug: string
+  ok: boolean
+  id: string | null
+  error: string | null
+}
+
+export interface TownRequest {
+  id: string
+  name: string
+  requested_slug: string | null
+  contact_name: string | null
+  contact_email: string | null
+  message: string | null
+  status: 'pending' | 'approved' | 'rejected'
+  tenant_id: string | null
+  created_at: string
+  decided_at: string | null
+  decided_by: string | null
 }

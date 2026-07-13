@@ -84,6 +84,9 @@ export function Dashboard() {
 
   useEffect(() => {
     load()
+    // Auto-refresh the overview every 30s (metadata only; no telemetry poll).
+    const timer = setInterval(() => api.fleetSummary().then(setData).catch(() => {}), 30000)
+    return () => clearInterval(timer)
   }, [])
 
   async function refresh() {

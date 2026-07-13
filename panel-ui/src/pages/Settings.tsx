@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Building2, KeyRound, Info, Check, Users } from 'lucide-react'
+import { Building2, KeyRound, Info, Check, Users, ShieldCheck, RotateCw, UserCircle } from 'lucide-react'
 import { api } from '../lib/api'
 import type { KeyCatalog, SecretOut } from '../lib/types'
 import { Badge, Button, Card, Spinner } from '../components/ui'
@@ -7,12 +7,39 @@ import { OWNER_META } from '../components/KeyMatrix'
 import { PageHeader } from '../components/Shell'
 import { getBaseDomain } from '../lib/config'
 import { useToast } from '../components/Toast'
+import { useSession } from '../lib/session'
 
 export function Settings() {
   const BASE_DOMAIN = getBaseDomain()
   const toast = useToast()
+  const { who, can } = useSession()
   const [catalog, setCatalog] = useState<KeyCatalog | null>(null)
   const [creds, setCreds] = useState<SecretOut[]>([])
+  const [auditState, setAuditState] = useState<string>('')
+  const [busy, setBusy] = useState('')
+
+  async function verifyAudit() {
+    setBusy('verify')
+    try {
+      const r = await api.auditVerify()
+      setAuditState(r.ok ? `Intact — ${r.entries} entries chained` : `BROKEN at #${r.broken_at_seq}: ${r.reason}`)
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setBusy('')
+    }
+  }
+  async function rotate() {
+    setBusy('rotate')
+    try {
+      const r = await api.reencryptSecrets()
+      toast.push(`Re-encrypted ${r.reencrypted} secret(s) with key v${r.key_version}`)
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setBusy('')
+    }
+  }
 
   async function loadCreds() {
     setCreds(await api.listStateCredentials())
@@ -31,6 +58,38 @@ export function Settings() {
       <PageHeader title="Settings" subtitle="Program-wide configuration and shared credentials." />
 
       <div className="space-y-4">
+        <Card>
+          <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5" /> Security &amp; compliance
+          </h3>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="flex items-center gap-2">
+              <UserCircle className="w-5 h-5 text-white/40" />
+              <div>
+                <div className="text-xs text-white/40 uppercase tracking-wide">Signed in as</div>
+                <div className="text-white">{who?.actor || '—'} <Badge variant="info">{who?.role || 'unknown'}</Badge></div>
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-white/40 uppercase tracking-wide mb-1">Secret key provider</div>
+              <div className="text-white">{who?.key_provider || '—'} {who?.require_signed_images && <Badge variant="success">signed images required</Badge>}</div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 mt-4">
+            <Button variant="secondary" onClick={verifyAudit} isLoading={busy === 'verify'} leftIcon={<ShieldCheck className="w-4 h-4" />}>
+              Verify audit chain
+            </Button>
+            {can('approver') && (
+              <Button variant="secondary" onClick={rotate} isLoading={busy === 'rotate'} leftIcon={<RotateCw className="w-4 h-4" />}>
+                Re-encrypt secrets (key rotation)
+              </Button>
+            )}
+          </div>
+          {auditState && (
+            <p className={`text-sm mt-3 ${auditState.startsWith('Intact') ? 'text-green-300' : 'text-red-300'}`}>{auditState}</p>
+          )}
+        </Card>
+
         <Card>
           <h3 className="font-semibold text-white mb-4">Program identity</h3>
           <div className="grid sm:grid-cols-2 gap-4">
