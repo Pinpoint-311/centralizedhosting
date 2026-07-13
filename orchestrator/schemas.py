@@ -205,8 +205,10 @@ class AuditOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    seq: int
     actor: str
     action: str
     tenant_id: str | None
     detail: dict
     created_at: datetime
+    entry_hash: str

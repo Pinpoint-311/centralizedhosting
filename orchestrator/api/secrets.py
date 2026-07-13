@@ -15,7 +15,7 @@ from orchestrator.models import PlatformSecret, Tenant
 from orchestrator.provisioner import set_platform_secret
 from orchestrator.schemas import SecretOut, SecretWrite
 from orchestrator.secrets_policy import is_platform_managed
-from orchestrator.security import require_panel_token
+from orchestrator.security import require_operator, require_panel_token
 
 router = APIRouter(prefix="/api/tenants/{tenant_id}/secrets", tags=["secrets"])
 
@@ -47,7 +47,7 @@ def put_secret(
     key_name: str,
     body: SecretWrite,
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     tenant = _tenant(db, tenant_id)
     key = key_name.strip().upper()
@@ -86,7 +86,7 @@ def delete_secret(
     tenant_id: str,
     key_name: str,
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     _tenant(db, tenant_id)
     key = key_name.strip().upper()

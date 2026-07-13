@@ -11,7 +11,7 @@ from orchestrator.db import get_db
 from orchestrator.key_catalog import normalize_assignments
 from orchestrator.models import ProvisionJob, Tenant, TenantStatus
 from orchestrator.schemas import ProvisionJobOut, TenantCreate, TenantOut, TenantUpdate
-from orchestrator.security import require_panel_token
+from orchestrator.security import require_approver, require_operator, require_panel_token
 
 router = APIRouter(prefix="/api/tenants", tags=["tenants"])
 
@@ -27,7 +27,7 @@ def _get_tenant(db: Session, tenant_id: str) -> Tenant:
 def create_tenant(
     body: TenantCreate,
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     if db.execute(select(Tenant).where(Tenant.slug == body.slug)).scalar_one_or_none():
         raise HTTPException(409, f"Tenant slug '{body.slug}' already exists")
@@ -45,7 +45,7 @@ def update_tenant(
     tenant_id: str,
     body: TenantUpdate,
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     """Edit contact info and domain after creation. Slug/subdomain are
     immutable (DNS + provisioned resources depend on them)."""
@@ -83,7 +83,7 @@ def get_tenant(
 def provision_tenant(
     tenant_id: str,
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     tenant = _get_tenant(db, tenant_id)
     if tenant.status == TenantStatus.DECOMMISSIONED:
@@ -129,7 +129,7 @@ def _set_lifecycle(db: Session, tenant: Tenant, state: str, actor: str) -> Tenan
 def suspend_tenant(
     tenant_id: str,
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     tenant = _get_tenant(db, tenant_id)
     if tenant.status != TenantStatus.ACTIVE:
@@ -141,7 +141,7 @@ def suspend_tenant(
 def resume_tenant(
     tenant_id: str,
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     tenant = _get_tenant(db, tenant_id)
     if tenant.status != TenantStatus.SUSPENDED:
@@ -153,7 +153,7 @@ def resume_tenant(
 def take_tenant_offline(
     tenant_id: str,
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     """Take the instance offline while retaining ALL data (DB, PII, uploads,
     KMS key, secrets). Reversible — not a decommission."""
@@ -168,7 +168,7 @@ def take_tenant_offline(
 def bring_tenant_online(
     tenant_id: str,
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     """Bring an offline instance back up with all data intact."""
     tenant = _get_tenant(db, tenant_id)
@@ -183,7 +183,7 @@ def decommission_tenant(
     tenant_id: str,
     confirm_slug: str = Query(description="Must equal the tenant slug — crypto-shred is irreversible"),
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_approver),
 ):
     tenant = _get_tenant(db, tenant_id)
     if confirm_slug != tenant.slug:

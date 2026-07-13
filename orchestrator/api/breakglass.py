@@ -17,6 +17,8 @@ from orchestrator.schemas import BreakGlassIssued, BreakGlassOut, BreakGlassRequ
 from orchestrator.security import (
     clamp_break_glass_expiry,
     mint_break_glass_token,
+    require_approver,
+    require_operator,
     require_panel_token,
 )
 
@@ -27,7 +29,7 @@ router = APIRouter(prefix="/api/breakglass", tags=["break-glass"])
 def issue_grant(
     body: BreakGlassRequest,
     db: Session = Depends(get_db),
-    operator: str = Depends(require_panel_token),
+    operator: str = Depends(require_approver),
 ):
     tenant = db.get(Tenant, body.tenant_id)
     if not tenant:
@@ -84,7 +86,7 @@ def list_grants(
 def revoke_grant(
     grant_id: str,
     db: Session = Depends(get_db),
-    operator: str = Depends(require_panel_token),
+    operator: str = Depends(require_operator),
 ):
     grant = db.get(BreakGlassGrant, grant_id)
     if not grant:

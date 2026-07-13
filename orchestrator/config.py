@@ -19,6 +19,31 @@ class Settings(BaseSettings):
     # sufficient authZ for government production — see GOVERNMENT_PRODUCTION.md.
     operator_header: str = ""
 
+    # RBAC. Roles: viewer < operator < approver < admin. The effective role is
+    # derived from a trusted groups header the OIDC/SSO proxy sets
+    # (ROLES_HEADER, e.g. "X-Forwarded-Groups"), mapped via ROLE_GROUP_MAP
+    # (JSON, e.g. '{"pp311-admins":"admin","pp311-ops":"operator"}'). When no
+    # groups header/mapping is present, every authenticated operator gets
+    # DEFAULT_OPERATOR_ROLE. Default "admin" keeps single-token dev/standalone
+    # deployments fully functional; government deployments set this to "viewer"
+    # (or "operator") and grant higher roles via group membership.
+    default_operator_role: str = "admin"
+    roles_header: str = ""
+    role_group_map: str = ""
+
+    # Panel-secret key management. "local" derives the encryption key from
+    # PANEL_SECRET_KEY (dev/standalone). Government production should wrap a
+    # generated data key with a FedRAMP/StateRAMP KMS — see key_provider.py and
+    # GOVERNMENT_PRODUCTION.md. PANEL_KEK_VERSION supports rotation.
+    key_provider: str = "local"
+    panel_kek_version: int = 1
+
+    # Supply chain. When true, provisioning refuses to deploy a release that
+    # isn't pinned to an immutable digest (image@sha256:…) — the government
+    # posture. Signature verification is a deployment admission control
+    # (cosign/Kyverno); documented in GOVERNMENT_PRODUCTION.md.
+    require_signed_images: bool = False
+
     # Fleet identity
     base_domain: str = "311.example.gov"
     backend_image: str = "ghcr.io/pinpoint-311/pinpoint-311-backend"

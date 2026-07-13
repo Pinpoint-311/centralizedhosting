@@ -11,7 +11,7 @@ from orchestrator.app_client import client_for_tenant
 from orchestrator.db import get_db
 from orchestrator.models import Release, TelemetrySnapshot, Tenant, TenantStatus
 from orchestrator.provisioner import get_platform_secret
-from orchestrator.security import require_panel_token
+from orchestrator.security import require_operator, require_panel_token
 from orchestrator.telemetry import sanitize_telemetry
 
 router = APIRouter(prefix="/api/fleet", tags=["fleet"])
@@ -29,7 +29,7 @@ def _latest_snapshots(db: Session) -> dict[str, TelemetrySnapshot]:
 @router.post("/refresh")
 def refresh_telemetry(
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     """Poll every active town's A5 telemetry endpoint; store sanitized snapshots."""
     tenants = db.execute(
