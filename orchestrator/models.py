@@ -250,8 +250,12 @@ class AuditLog(Base):
     __tablename__ = "audit_log"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    seq: Mapped[int] = mapped_column(Integer, index=True, default=0)
     actor: Mapped[str] = mapped_column(String(255))
     action: Mapped[str] = mapped_column(String(128), index=True)
     tenant_id: Mapped[str | None] = mapped_column(String(32), index=True, default=None)
     detail: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    # Tamper-evident hash chain (each entry binds to the previous one).
+    previous_hash: Mapped[str | None] = mapped_column(String(64), default=None)
+    entry_hash: Mapped[str] = mapped_column(String(64), default="")

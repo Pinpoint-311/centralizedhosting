@@ -9,7 +9,7 @@ from orchestrator.config import settings
 from orchestrator.db import get_db
 from orchestrator.models import Release, Rollout, RolloutStatus
 from orchestrator.schemas import ReleaseCreate, ReleaseOut, RolloutCreate, RolloutOut
-from orchestrator.security import require_panel_token
+from orchestrator.security import require_operator, require_panel_token
 
 router = APIRouter(prefix="/api", tags=["releases"])
 
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api", tags=["releases"])
 def publish_release(
     body: ReleaseCreate,
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     if db.execute(select(Release).where(Release.version == body.version)).scalar_one_or_none():
         raise HTTPException(409, f"Release {body.version} already published")
@@ -55,7 +55,7 @@ def _get_rollout(db: Session, rollout_id: str) -> Rollout:
 def start_rollout(
     body: RolloutCreate,
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     release = db.get(Release, body.release_id)
     if not release:
@@ -81,7 +81,7 @@ def start_rollout(
 def promote_rollout(
     rollout_id: str,
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     obj = _get_rollout(db, rollout_id)
     try:
@@ -94,7 +94,7 @@ def promote_rollout(
 def rollback_rollout(
     rollout_id: str,
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     obj = _get_rollout(db, rollout_id)
     if obj.status in (RolloutStatus.ROLLED_BACK,):

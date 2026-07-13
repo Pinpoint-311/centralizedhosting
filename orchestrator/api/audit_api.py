@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from orchestrator import audit as audit_svc
 from orchestrator.db import get_db
 from orchestrator.models import AuditLog
 from orchestrator.schemas import AuditOut
@@ -20,9 +21,15 @@ def list_audit(
     db: Session = Depends(get_db),
     _: str = Depends(require_panel_token),
 ):
-    query = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
+    query = select(AuditLog).order_by(AuditLog.seq.desc()).limit(limit)
     if tenant_id:
         query = query.where(AuditLog.tenant_id == tenant_id)
     if action:
         query = query.where(AuditLog.action == action)
     return db.execute(query).scalars().all()
+
+
+@router.get("/verify")
+def verify_audit(db: Session = Depends(get_db), _: str = Depends(require_panel_token)):
+    """Recompute the tamper-evident hash chain; report the first break if any."""
+    return audit_svc.verify_chain(db)

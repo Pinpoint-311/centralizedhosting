@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from orchestrator import __version__
 from orchestrator.api import (
+    admin,
     audit_api,
     breakglass,
     fleet,
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
     app.include_router(fleet.router)
     app.include_router(breakglass.router)
     app.include_router(audit_api.router)
+    app.include_router(admin.router)
 
     @app.get("/healthz", tags=["meta"])
     def healthz():

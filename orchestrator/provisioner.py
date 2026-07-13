@@ -89,6 +89,23 @@ def set_state_credential(db: Session, key: str, value: str) -> None:
     db.flush()
 
 
+def reencrypt_all_secrets(db: Session) -> int:
+    """Re-encrypt every stored secret with the currently-active key version.
+    Run after bumping PANEL_KEK_VERSION to complete a key rotation. Idempotent
+    and safe to re-run. Returns the number of rows rewritten."""
+    from orchestrator.models import PlatformSecret, StateCredential
+
+    n = 0
+    for row in db.execute(select(PlatformSecret)).scalars().all():
+        row.encrypted_value = encrypt_value(decrypt_value(row.encrypted_value))
+        n += 1
+    for row in db.execute(select(StateCredential)).scalars().all():
+        row.encrypted_value = encrypt_value(decrypt_value(row.encrypted_value))
+        n += 1
+    db.commit()
+    return n
+
+
 def _secrets_bundle(db: Session, tenant: Tenant) -> dict[str, str]:
     """Everything injected into the town's env: per-tenant platform secrets
     (infra + state_per_town service keys) plus the shared-pool values for any
@@ -201,6 +218,19 @@ def _step_configure_dns(db: Session, tenant: Tenant, ctx: dict) -> tuple[str, st
     return DONE, f"{host} served via wildcard *.{settings.base_domain} DNS + TLS"
 
 
+def _step_verify_supply_chain(db: Session, tenant: Tenant, ctx: dict) -> tuple[str, str]:
+    version = _target_version(db, tenant)
+    if not settings.require_signed_images:
+        return SKIPPED, "REQUIRE_SIGNED_IMAGES=false — digest pinning not enforced"
+    rel = release_for_version(db, version)
+    if not rel or not (rel.backend_digest and rel.frontend_digest):
+        raise RuntimeError(
+            f"release {version} is not digest-pinned; REQUIRE_SIGNED_IMAGES refuses "
+            "mutable tags. Publish the release with backend_digest/frontend_digest."
+        )
+    return DONE, f"images digest-pinned (backend {rel.backend_digest[:19]}…)"
+
+
 def _step_render_stack(db: Session, tenant: Tenant, ctx: dict) -> tuple[str, str]:
     version = _target_version(db, tenant)
     tenant.target_version = version
@@ -253,6 +283,7 @@ PIPELINE = [
     ("allocate_storage", _step_allocate_storage),
     ("allocate_ports", _step_allocate_ports),
     ("configure_dns", _step_configure_dns),
+    ("verify_supply_chain", _step_verify_supply_chain),
     ("render_stack", _step_render_stack),
     ("apply_stack", _step_apply_stack),
     ("app_bootstrap", _step_app_bootstrap),

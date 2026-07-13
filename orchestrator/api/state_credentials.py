@@ -12,7 +12,7 @@ from orchestrator.key_catalog import all_assignable_keys
 from orchestrator.models import StateCredential
 from orchestrator.provisioner import set_state_credential
 from orchestrator.schemas import SecretOut, SecretWrite
-from orchestrator.security import require_panel_token
+from orchestrator.security import require_operator, require_panel_token
 
 router = APIRouter(prefix="/api/state-credentials", tags=["state-credentials"])
 
@@ -32,7 +32,7 @@ def put_state_credential(
     key_name: str,
     body: SecretWrite,
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     key = key_name.strip().upper()
     if key not in all_assignable_keys():
@@ -54,7 +54,7 @@ def put_state_credential(
 def delete_state_credential(
     key_name: str,
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     key = key_name.strip().upper()
     row = db.execute(

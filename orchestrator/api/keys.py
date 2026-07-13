@@ -14,7 +14,7 @@ from orchestrator.key_catalog import (
 from orchestrator.models import Tenant
 from orchestrator.schemas import KeyAssignmentUpdate, KeyCatalogOut, TenantKeyAssignments
 from orchestrator.secrets_policy import PLATFORM_MANAGED_KEYS, PLATFORM_MANAGED_PREFIXES
-from orchestrator.security import require_panel_token
+from orchestrator.security import require_operator, require_panel_token
 
 router = APIRouter(prefix="/api", tags=["key-responsibility"])
 
@@ -53,7 +53,7 @@ def set_assignments(
     tenant_id: str,
     body: KeyAssignmentUpdate,
     db: Session = Depends(get_db),
-    actor: str = Depends(require_panel_token),
+    actor: str = Depends(require_operator),
 ):
     tenant = _tenant(db, tenant_id)
     merged = normalize_assignments({**normalize_assignments(tenant.key_assignments), **body.assignments})
