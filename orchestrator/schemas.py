@@ -57,6 +57,30 @@ class BulkResultRow(BaseModel):
     error: str | None = None
 
 
+class TownRequestCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    requested_slug: str | None = None
+    contact_name: str | None = None
+    contact_email: str | None = None
+    message: str | None = None
+
+
+class TownRequestOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    requested_slug: str | None
+    contact_name: str | None
+    contact_email: str | None
+    message: str | None
+    status: str
+    tenant_id: str | None
+    created_at: datetime
+    decided_at: datetime | None
+    decided_by: str | None
+
+
 class AlertOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

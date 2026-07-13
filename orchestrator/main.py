@@ -14,6 +14,7 @@ from orchestrator.api import (
     insights_api,
     keys,
     releases,
+    requests_api,
     secrets,
     state_credentials,
     tenants,
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
     app.include_router(audit_api.router)
     app.include_router(admin.router)
     app.include_router(insights_api.router)
+    app.include_router(requests_api.router)
 
     @app.get("/healthz", tags=["meta"])
     def healthz():

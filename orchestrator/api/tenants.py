@@ -131,6 +131,29 @@ def provision_tenant(
     return provisioner.run_provision(db, tenant, actor)
 
 
+@router.get("/{tenant_id}/stack-preview")
+def stack_preview(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_panel_token),
+):
+    """Preview the exact compose + env that provisioning would render for this
+    town (secret values masked). Lets an operator review before deploying."""
+    from orchestrator import stack
+
+    tenant = _get_tenant(db, tenant_id)
+    version = tenant.target_version or provisioner._target_version(db, tenant)
+    rel = provisioner.release_for_version(db, version)
+    preview = stack.preview_stack(
+        tenant,
+        provisioner._secrets_bundle(db, tenant),
+        version,
+        backend_digest=rel.backend_digest if rel else None,
+        frontend_digest=rel.frontend_digest if rel else None,
+    )
+    return {"version": version, **preview}
+
+
 @router.get("/{tenant_id}/jobs", response_model=list[ProvisionJobOut])
 def list_jobs(
     tenant_id: str,

@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     # Background alert-evaluation cadence (seconds); 0 disables the loop.
     alert_poll_seconds: int = 0
 
+    # Public self-service hosting-request intake. Off by default (adds an
+    # unauthenticated endpoint); enable only behind rate-limiting/CAPTCHA.
+    public_requests_enabled: bool = False
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

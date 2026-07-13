@@ -126,3 +126,46 @@ def test_tag_filter(client):
     filtered = client.get("/api/tenants?tag=pilot", headers=HEADERS).json()
     assert len(filtered) == 1 and filtered[0]["slug"] == "tagged"
     assert client.get("/api/tenants?tag=nope", headers=HEADERS).json() == []
+
+
+# ---- stack preview + self-service requests ----------------------------------
+
+def test_stack_preview_masks_secrets(client):
+    tenant = make_tenant(client, slug="previewtown")
+    client.put(
+        f"/api/tenants/{tenant['id']}/secrets/GOOGLE_MAPS_API_KEY",
+        json={"value": "AIza-secret-should-not-appear"},
+        headers=HEADERS,
+    )
+    prev = client.get(f"/api/tenants/{tenant['id']}/stack-preview", headers=HEADERS).json()
+    assert "MANAGED_MODE" in prev["compose"]
+    assert "AIza-secret-should-not-appear" not in prev["env"]
+    assert "••••••••" in prev["env"]
+
+
+def test_public_requests_disabled_by_default(client):
+    r = client.post("/api/requests", json={"name": "Testville"})
+    assert r.status_code == 404
+
+
+def test_request_approve_creates_tenant(client, monkeypatch):
+    from orchestrator.config import settings
+    monkeypatch.setattr(settings, "public_requests_enabled", True)
+    req = client.post(
+        "/api/requests",
+        json={"name": "Requestville", "requested_slug": "requestville", "contact_email": "clerk@rv.gov"},
+    ).json()
+    assert req["status"] == "pending"
+    tenant = client.post(f"/api/requests/{req['id']}/approve", headers=HEADERS).json()
+    assert tenant["slug"] == "requestville"
+    # request is now approved and linked
+    listed = client.get("/api/requests?status=approved", headers=HEADERS).json()
+    assert listed[0]["tenant_id"] == tenant["id"]
+
+
+def test_request_reject(client, monkeypatch):
+    from orchestrator.config import settings
+    monkeypatch.setattr(settings, "public_requests_enabled", True)
+    req = client.post("/api/requests", json={"name": "Nopeville"}).json()
+    r = client.post(f"/api/requests/{req['id']}/reject", headers=HEADERS).json()
+    assert r["status"] == "rejected"

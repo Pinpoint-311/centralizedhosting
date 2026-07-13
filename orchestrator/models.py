@@ -247,6 +247,26 @@ class BreakGlassGrant(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class TownRequest(Base):
+    """Self-service hosting request from a municipality. Lands in a pending
+    queue; an operator approves (→ creates a Tenant) or rejects. Public intake
+    is opt-in via PUBLIC_REQUESTS_ENABLED."""
+
+    __tablename__ = "town_requests"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(255))
+    requested_slug: Mapped[str | None] = mapped_column(String(63), default=None)
+    contact_name: Mapped[str | None] = mapped_column(String(255), default=None)
+    contact_email: Mapped[str | None] = mapped_column(String(255), default=None)
+    message: Mapped[str | None] = mapped_column(Text, default=None)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    decided_by: Mapped[str | None] = mapped_column(String(150), default=None)
+
+
 class Alert(Base):
     """A fired monitoring alert (town down, version drift, cost spike, …).
     Open until acknowledged; the evaluator won't duplicate an open alert of the
