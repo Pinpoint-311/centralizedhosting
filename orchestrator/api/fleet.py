@@ -62,7 +62,11 @@ def refresh_telemetry(
         polled += 1
     audit.record(db, actor, "fleet.telemetry_refreshed", None, polled=polled, reachable=reachable)
     db.commit()
-    return {"polled": polled, "reachable": reachable}
+    # Fresh telemetry → re-evaluate alert conditions (down, drift, …).
+    from orchestrator import insights
+
+    new_alerts = len(insights.evaluate_alerts(db))
+    return {"polled": polled, "reachable": reachable, "new_alerts": new_alerts}
 
 
 @router.get("/summary")
