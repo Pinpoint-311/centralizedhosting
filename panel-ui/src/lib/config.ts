@@ -2,6 +2,8 @@ let baseDomain = '311.example.gov'
 let regionLabel = 'County'
 let regions: string[] = []
 let publicRequestsEnabled = false
+let mapsApiKey = ''
+let mapsMapId = ''
 
 export function getBaseDomain(): string {
   return baseDomain
@@ -19,6 +21,12 @@ export function getRegions(): string[] {
 export function publicRequestsOn(): boolean {
   return publicRequestsEnabled
 }
+export function getMapsApiKey(): string {
+  return mapsApiKey
+}
+export function getMapsMapId(): string {
+  return mapsMapId
+}
 
 export async function loadPanelConfig(): Promise<void> {
   try {
@@ -29,6 +37,8 @@ export async function loadPanelConfig(): Promise<void> {
       if (cfg.region_label) regionLabel = cfg.region_label
       if (Array.isArray(cfg.regions)) regions = cfg.regions
       publicRequestsEnabled = !!cfg.public_requests_enabled
+      if (cfg.maps_api_key) mapsApiKey = cfg.maps_api_key
+      if (cfg.maps_map_id) mapsMapId = cfg.maps_map_id
     }
   } catch {
     // keep defaults; the panel still works, hostnames just use the fallback

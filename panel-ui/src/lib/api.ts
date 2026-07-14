@@ -8,7 +8,9 @@ import type {
   ComplianceSummary,
   CostSummary,
   FleetSummary,
+  GeoFeatureCollection,
   KeyCatalog,
+  OsmResult,
   LegalHold,
   ManagedField,
   ProvisionJob,
@@ -178,6 +180,15 @@ export const api = {
   // compliance + transparency
   compliance: () => req<ComplianceSummary>('GET', '/api/compliance/summary'),
   transparency: (id: string) => req<Transparency>('GET', `/api/tenants/${id}/transparency`),
+
+  // GIS / State Map — town boundary polygons (OSM-sourced)
+  gisMap: () => req<GeoFeatureCollection>('GET', '/api/gis/map'),
+  getBoundary: (id: string) => req<{ boundary: GeoFeatureCollection | null; has_boundary: boolean }>('GET', `/api/tenants/${id}/boundary`),
+  osmSearch: (query: string) => req<{ results: OsmResult[] }>('GET', `/api/gis/osm/search?query=${encodeURIComponent(query)}`),
+  osmBoundary: (osmId: number) => req<{ osm_id: number; geojson: unknown }>('GET', `/api/gis/osm/boundary/${osmId}`),
+  setBoundary: (id: string, body: { geojson: unknown; name?: string; center_lat?: number; center_lng?: number }) =>
+    req<{ status: string; has_boundary: boolean }>('PUT', `/api/tenants/${id}/boundary`, body),
+  clearBoundary: (id: string) => req<{ status: string; has_boundary: boolean }>('DELETE', `/api/tenants/${id}/boundary`),
 
   // status + announcements
   publicStatus: () => req<PublicStatus>('GET', '/api/status'),

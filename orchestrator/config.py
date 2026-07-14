@@ -49,6 +49,16 @@ class Settings(BaseSettings):
     backend_image: str = "ghcr.io/pinpoint-311/pinpoint-311-backend"
     frontend_image: str = "ghcr.io/pinpoint-311/pinpoint-311-frontend"
 
+    # Google Maps for the panel's own State Map (the same Maps JS SDK the app
+    # uses). This is the panel's operational key, separate from the "maps"
+    # credential the state may broker to towns. A Maps JS key is meant to be
+    # referrer-restricted and is safe to expose to the browser (that's how the
+    # JS SDK works); it's surfaced via /api/panel-config. Empty -> the map shows
+    # a "configure a maps key" state instead of a live map. MAPS_MAP_ID is an
+    # optional Cloud map style id (enables vector/dark styling + tilt).
+    maps_api_key: str = ""
+    maps_map_id: str = ""
+
     # Where per-town Compose stacks are rendered (MVP deployment shape).
     tenant_root: Path = Path("./tenants")
     # When False the panel only renders stacks + records intent (safe default

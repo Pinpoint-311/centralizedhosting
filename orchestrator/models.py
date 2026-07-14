@@ -59,6 +59,11 @@ class Tenant(Base):
     latitude: Mapped[float | None] = mapped_column(default=None)
     longitude: Mapped[float | None] = mapped_column(default=None)
 
+    # Public municipal boundary as a GeoJSON FeatureCollection, sourced from
+    # OpenStreetMap/Nominatim (same flow the app's admin console uses). Public
+    # geography, never resident data — drawn as the town's polygon on the map.
+    boundary: Mapped[dict | None] = mapped_column(JSON, default=None)
+
     # Free-form operator tags (cohort, pilot, …) for filtering.
     tags: Mapped[list] = mapped_column(JSON, default=list)
 

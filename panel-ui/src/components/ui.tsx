@@ -243,6 +243,19 @@ const STATUS_VARIANT: Record<string, BadgeVariant> = {
   failed: 'danger',
   decommissioned: 'default',
 }
+
+// Hex status palette for charts/maps/markers (SVG + Google Maps can't use the
+// Badge variant classes). Single source of truth — shared by the dashboard
+// charts and the State Map.
+export const STATUS_COLOR: Record<string, string> = {
+  active: '#22c55e',
+  pending: '#3b82f6',
+  provisioning: '#f59e0b',
+  suspended: '#f59e0b',
+  offline: '#94a3b8',
+  failed: '#ef4444',
+  decommissioned: '#6b7280',
+}
 export function StatusBadge({ status }: { status: string }) {
   return <Badge variant={STATUS_VARIANT[status] || 'default'}>{status}</Badge>
 }

@@ -21,10 +21,13 @@ import {
   Scale,
   Eye,
   X,
+  MapPin,
+  Search,
+  Map as MapIcon,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { useSession } from '../lib/session'
-import type { KeyCatalog, ProvisionJob, SecretOut, Tenant } from '../lib/types'
+import type { KeyCatalog, OsmResult, ProvisionJob, SecretOut, Tenant } from '../lib/types'
 import {
   Badge,
   Button,
@@ -404,7 +407,119 @@ function DomainContact({ tenant, onSaved }: { tenant: Tenant; onSaved: () => voi
           Save changes
         </Button>
       </div>
+
+      <BoundaryPicker tenant={tenant} onSaved={onSaved} />
     </div>
+  )
+}
+
+// ---------------------------------------------------------- Boundary picker
+function BoundaryPicker({ tenant, onSaved }: { tenant: Tenant; onSaved: () => void }) {
+  const toast = useToast()
+  const [hasBoundary, setHasBoundary] = useState(false)
+  const [query, setQuery] = useState(tenant.name || '')
+  const [results, setResults] = useState<OsmResult[]>([])
+  const [searching, setSearching] = useState(false)
+  const [busy, setBusy] = useState('')
+
+  useEffect(() => {
+    api.getBoundary(tenant.id).then((r) => setHasBoundary(r.has_boundary)).catch(() => {})
+  }, [tenant.id])
+
+  async function search() {
+    setSearching(true)
+    setResults([])
+    try {
+      const r = await api.osmSearch(query.trim())
+      setResults(r.results)
+      if (r.results.length === 0) toast.push('No municipal boundaries found — try adding the state, e.g. "Montclair, NJ"')
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  async function choose(r: OsmResult) {
+    setBusy(String(r.osm_id))
+    try {
+      // Nominatim already returns a boundary; fall back to the detail fetch if absent.
+      let geojson: unknown = r.geojson
+      if (!geojson) geojson = (await api.osmBoundary(r.osm_id)).geojson
+      await api.setBoundary(tenant.id, {
+        geojson,
+        name: tenant.name,
+        center_lat: r.lat ? Number(r.lat) : undefined,
+        center_lng: r.lon ? Number(r.lon) : undefined,
+      })
+      setHasBoundary(true)
+      setResults([])
+      toast.push('Boundary saved — it now draws on the State Map')
+      onSaved()
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function clear() {
+    setBusy('clear')
+    try {
+      await api.clearBoundary(tenant.id)
+      setHasBoundary(false)
+      toast.push('Boundary cleared')
+      onSaved()
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  return (
+    <Card>
+      <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
+        <MapIcon className="w-5 h-5" /> Boundary polygon
+        {hasBoundary && <Badge variant="success">configured</Badge>}
+      </h3>
+      <p className="text-sm text-white/50 mb-4">
+        Search OpenStreetMap for this municipality and save its boundary — the same source the
+        Pinpoint app uses. It draws as the town's polygon on the State Map. Public geography only.
+      </p>
+      <div className="flex flex-col sm:flex-row gap-2 mb-3">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && search()}
+          placeholder='e.g. "West Windsor Township, NJ"'
+        />
+        <Button variant="secondary" onClick={search} isLoading={searching} leftIcon={<Search className="w-4 h-4" />}>
+          Search
+        </Button>
+        {hasBoundary && (
+          <Button variant="ghost" onClick={clear} isLoading={busy === 'clear'} leftIcon={<Trash2 className="w-4 h-4" />}>
+            Clear
+          </Button>
+        )}
+      </div>
+      {results.length > 0 && (
+        <div className="space-y-1.5">
+          {results.map((r) => (
+            <button
+              key={r.osm_id}
+              onClick={() => choose(r)}
+              disabled={!!busy}
+              className="w-full text-left px-3 py-2 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/10 flex items-center gap-2 disabled:opacity-50"
+            >
+              <MapPin className="w-4 h-4 text-indigo-300 shrink-0" />
+              <span className="text-sm text-white flex-1 truncate">{r.display_name}</span>
+              {busy === String(r.osm_id) ? <Spinner /> : <span className="text-xs text-indigo-300">Use this</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </Card>
   )
 }
 
