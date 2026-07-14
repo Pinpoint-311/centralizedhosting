@@ -12,6 +12,7 @@ from orchestrator.api import (
     audit_api,
     breakglass,
     fleet,
+    gis,
     insights_api,
     keys,
     managed_api,
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
     app.include_router(state_credentials.router)
     app.include_router(releases.router)
     app.include_router(fleet.router)
+    app.include_router(gis.router)
     app.include_router(breakglass.router)
     app.include_router(audit_api.router)
     app.include_router(admin.router)
@@ -100,6 +102,9 @@ def create_app() -> FastAPI:
             "region_label": settings.region_label,
             "regions": regions,
             "public_requests_enabled": settings.public_requests_enabled,
+            # Referrer-restricted Maps JS key for the State Map (public by design).
+            "maps_api_key": settings.maps_api_key,
+            "maps_map_id": settings.maps_map_id,
             "version": __version__,
         }
 

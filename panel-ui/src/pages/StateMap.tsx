@@ -1,188 +1,184 @@
-import { useEffect, useMemo, useState } from 'react'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MapPin, Building2 } from 'lucide-react'
+import { MapPin, Building2, AlertTriangle } from 'lucide-react'
 import { api } from '../lib/api'
-import type { Tenant } from '../lib/types'
-import { Badge, Card, EmptyState, Spinner, StatusBadge } from '../components/ui'
+import type { GeoFeatureCollection } from '../lib/types'
+import { Badge, Card, EmptyState, Spinner, StatusBadge, STATUS_COLOR } from '../components/ui'
 import { PageHeader } from '../components/Shell'
+import { getMapsApiKey, getMapsMapId } from '../lib/config'
+import { loadGoogleMaps, extendBoundsFromFeature } from '../lib/googlemaps'
 import { useToast } from '../components/Toast'
 
-// Status → marker color (matches the dashboard palette)
-const STATUS_COLOR: Record<string, string> = {
-  active: '#22c55e',
-  pending: '#3b82f6',
-  provisioning: '#f59e0b',
-  suspended: '#f59e0b',
-  offline: '#94a3b8',
-  failed: '#ef4444',
-  decommissioned: '#6b7280',
-}
-
-const W = 960
-const H = 560
-
-/**
- * Albers equal-area conic projection for the continental U.S. — the standard
- * projection for national maps. No tiles, no map API key, works offline: the
- * government-appropriate choice (and it means the map itself isn't one of the
- * API keys a town has to provide).
- *
- * The view auto-fits to the onboarded towns (so a single state's municipalities
- * fill the frame) and falls back to the whole lower-48 when there are too few
- * points to define an extent.
- */
-function useProjector(placed: Tenant[]) {
-  return useMemo(() => {
-    const d2r = Math.PI / 180
-    const phi1 = 29.5 * d2r
-    const phi2 = 45.5 * d2r
-    const lat0 = 37.5 * d2r
-    const lon0 = -96 * d2r
-    const n = (Math.sin(phi1) + Math.sin(phi2)) / 2
-    const C = Math.cos(phi1) ** 2 + 2 * n * Math.sin(phi1)
-    const rho0 = Math.sqrt(C - 2 * n * Math.sin(lat0)) / n
-    const raw = (latDeg: number, lonDeg: number): [number, number] => {
-      const lat = latDeg * d2r
-      const lon = lonDeg * d2r
-      const theta = n * (lon - lon0)
-      const rho = Math.sqrt(C - 2 * n * Math.sin(lat)) / n
-      return [rho * Math.sin(theta), rho0 - rho * Math.cos(theta)]
-    }
-
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-    const acc = (lat: number, lon: number) => {
-      const [x, y] = raw(lat, lon)
-      minX = Math.min(minX, x); maxX = Math.max(maxX, x)
-      minY = Math.min(minY, y); maxY = Math.max(maxY, y)
-    }
-
-    if (placed.length >= 2) {
-      // Fit to the towns' bounding box (plus margin) so the state fills the view.
-      for (const t of placed) acc(t.latitude as number, t.longitude as number)
-      const mx = (maxX - minX) * 0.18 + 0.02
-      const my = (maxY - minY) * 0.18 + 0.02
-      minX -= mx; maxX += mx; minY -= my; maxY += my
-    } else {
-      // Whole lower-48 as a fallback.
-      for (let lat = 24; lat <= 49.5; lat += 0.5)
-        for (let lon = -125; lon <= -66; lon += 0.5) acc(lat, lon)
-    }
-
-    const pad = 24
-    const s = Math.min((W - 2 * pad) / (maxX - minX), (H - 2 * pad) / (maxY - minY))
-    const ox = pad + (W - 2 * pad - s * (maxX - minX)) / 2
-    const oy = pad + (H - 2 * pad - s * (maxY - minY)) / 2
-    const project = (latDeg: number, lonDeg: number): [number, number] => {
-      const [x, y] = raw(latDeg, lonDeg)
-      return [ox + s * (x - minX), oy + s * (maxY - y)] // north → up
-    }
-    return { project, bounds: { minX, maxX, minY, maxY } }
-  }, [placed])
-}
+// Dark map style so the panel's map matches the indigo glass UI (used only when
+// no Cloud Map ID is configured; a Map ID takes over styling when present).
+const DARK_STYLE: any[] = [
+  { elementType: 'geometry', stylers: [{ color: '#1a1633' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#1a1633' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#9aa0c3' }] },
+  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2a2450' }] },
+  { featureType: 'road', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#12102a' }] },
+  { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#3a3470' }] },
+]
 
 export function StateMap() {
   const toast = useToast()
   const navigate = useNavigate()
-  const [tenants, setTenants] = useState<Tenant[]>([])
+  const mapEl = useRef<HTMLDivElement>(null)
+  const mapObj = useRef<any>(null)
+  const [fc, setFc] = useState<GeoFeatureCollection | null>(null)
   const [loading, setLoading] = useState(true)
-  const [hover, setHover] = useState<string | null>(null)
+  const [mapError, setMapError] = useState('')
+  const apiKey = getMapsApiKey()
 
   useEffect(() => {
     api
-      .listTenants()
-      .then(setTenants)
+      .gisMap()
+      .then(setFc)
       .catch((e) => toast.push((e as Error).message, 'error'))
       .finally(() => setLoading(false))
   }, [])
 
-  const placed = useMemo(
-    () => tenants.filter((t) => t.latitude != null && t.longitude != null),
-    [tenants],
-  )
-  const unplaced = tenants.filter((t) => t.latitude == null || t.longitude == null)
-  const { project } = useProjector(placed)
+  // Build/refresh the Google map once data + SDK are ready.
+  useEffect(() => {
+    if (!fc || !apiKey || !mapEl.current) return
+    let cancelled = false
+    loadGoogleMaps(apiKey)
+      .then(() => {
+        if (cancelled || !mapEl.current) return
+        const g = window.google
+        const mapId = getMapsMapId()
+        const map =
+          mapObj.current ||
+          new g.maps.Map(mapEl.current, {
+            center: { lat: 40.3, lng: -74.5 },
+            zoom: 8,
+            mapTypeControl: false,
+            streetViewControl: false,
+            fullscreenControl: true,
+            zoomControl: true,
+            ...(mapId ? { mapId } : { styles: DARK_STYLE }),
+          })
+        mapObj.current = map
 
-  // Graticule at whole-degree steps that span the fitted view (clipped by SVG).
-  const meridians: string[] = []
-  for (let lon = -125; lon <= -66; lon += 2) {
-    const pts: string[] = []
-    for (let lat = 22; lat <= 52; lat += 1) pts.push(project(lat, lon).join(','))
-    meridians.push(pts.join(' '))
-  }
-  const parallels: string[] = []
-  for (let lat = 22; lat <= 52; lat += 2) {
-    const pts: string[] = []
-    for (let lon = -125; lon <= -66; lon += 1) pts.push(project(lat, lon).join(','))
-    parallels.push(pts.join(' '))
-  }
+        // Reset the data layer, then add every town as a Feature.
+        map.data.forEach((f: any) => map.data.remove(f))
+        map.data.addGeoJson(fc)
+
+        // Color each town by status; polygons filled, points as circles.
+        map.data.setStyle((feature: any) => {
+          const status = feature.getProperty('status') || 'active'
+          const color = STATUS_COLOR[status] || '#94a3b8'
+          const isPoint = feature.getGeometry()?.getType() === 'Point'
+          if (isPoint) {
+            return {
+              icon: {
+                path: g.maps.SymbolPath.CIRCLE,
+                scale: 7,
+                fillColor: color,
+                fillOpacity: 0.95,
+                strokeColor: '#ffffff',
+                strokeWeight: 1.5,
+              },
+              title: feature.getProperty('name'),
+            }
+          }
+          return {
+            fillColor: color,
+            fillOpacity: 0.18,
+            strokeColor: color,
+            strokeWeight: 2,
+            strokeOpacity: 0.9,
+          }
+        })
+
+        // Hover emphasis.
+        map.data.addListener('mouseover', (e: any) => {
+          if (e.feature.getGeometry()?.getType() !== 'Point')
+            map.data.overrideStyle(e.feature, { fillOpacity: 0.38, strokeWeight: 3 })
+          map.getDiv().style.cursor = 'pointer'
+        })
+        map.data.addListener('mouseout', () => {
+          map.data.revertStyle()
+          map.getDiv().style.cursor = ''
+        })
+        // Click → open the town.
+        map.data.addListener('click', (e: any) => {
+          const id = e.feature.getProperty('id')
+          if (id) navigate(`/towns/${id}`)
+        })
+
+        // Fit to all features.
+        const bounds = new g.maps.LatLngBounds()
+        map.data.forEach((f: any) => extendBoundsFromFeature(bounds, f))
+        if (!bounds.isEmpty()) {
+          map.fitBounds(bounds, 48)
+          // Don't zoom absurdly close when there's a single small town.
+          const once = g.maps.event.addListenerOnce(map, 'idle', () => {
+            if (map.getZoom() > 13) map.setZoom(13)
+          })
+          void once
+        }
+      })
+      .catch((e) => setMapError((e as Error).message))
+    return () => {
+      cancelled = true
+    }
+  }, [fc, apiKey, navigate])
 
   if (loading) return <Spinner />
 
-  const statusList = Array.from(new Set(placed.map((t) => t.status)))
+  const feats = fc?.features || []
+  const placed = feats.length
+  const withBoundary = feats.filter((f) => f.properties.has_boundary).length
+  const statusList = Array.from(new Set(feats.map((f) => f.properties.status)))
 
   return (
     <div>
       <PageHeader
         title="State Map"
-        subtitle="Where your onboarded municipalities are — an equal-area U.S. projection, no external map service."
+        subtitle="Onboarded municipalities and their boundaries — public geography from OpenStreetMap, never resident data."
       />
 
-      {tenants.length === 0 ? (
+      {placed === 0 ? (
         <Card>
-          <EmptyState icon={<MapPin className="w-7 h-7" />} title="No municipalities to map yet" />
+          <EmptyState
+            icon={<MapPin className="w-7 h-7" />}
+            title="No municipalities to map yet"
+            hint="Add a town, then attach its boundary from the Domain & contact tab."
+          />
         </Card>
       ) : (
         <div className="grid lg:grid-cols-[1fr_18rem] gap-4">
           <Card className="!p-3 sm:!p-4">
-            <div className="w-full overflow-hidden rounded-xl bg-white/[0.02] border border-white/10">
-              <svg
-                viewBox={`0 0 ${W} ${H}`}
-                className="w-full h-auto"
+            {!apiKey ? (
+              <div className="rounded-xl bg-amber-500/10 border border-amber-500/25 p-6 text-center">
+                <AlertTriangle className="w-8 h-8 text-amber-300 mx-auto mb-2" />
+                <p className="text-white font-medium">Map key not configured</p>
+                <p className="text-sm text-white/60 mt-1 max-w-md mx-auto">
+                  Set <code>MAPS_API_KEY</code> (a referrer-restricted Google Maps JS key) on the
+                  control plane to render the live map. Boundaries are already stored — the list on
+                  the right stays available regardless.
+                </p>
+              </div>
+            ) : mapError ? (
+              <div className="rounded-xl bg-red-500/10 border border-red-500/25 p-6 text-center">
+                <AlertTriangle className="w-8 h-8 text-red-300 mx-auto mb-2" />
+                <p className="text-white font-medium">Map failed to load</p>
+                <p className="text-sm text-white/60 mt-1">{mapError}</p>
+              </div>
+            ) : (
+              <div
+                ref={mapEl}
+                className="w-full rounded-xl overflow-hidden border border-white/10"
+                style={{ height: 520 }}
                 role="img"
-                aria-label={`Map of ${placed.length} onboarded municipalities across the continental United States. A full list follows.`}
-              >
-                {/* graticule */}
-                {parallels.map((p, i) => (
-                  <polyline key={`p${i}`} points={p} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
-                ))}
-                {meridians.map((m, i) => (
-                  <polyline key={`m${i}`} points={m} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
-                ))}
-                {/* markers */}
-                {placed.map((t) => {
-                  const [cx, cy] = project(t.latitude as number, t.longitude as number)
-                  const color = STATUS_COLOR[t.status] || '#94a3b8'
-                  const active = hover === t.id
-                  return (
-                    <g
-                      key={t.id}
-                      transform={`translate(${cx},${cy})`}
-                      className="cursor-pointer"
-                      onMouseEnter={() => setHover(t.id)}
-                      onMouseLeave={() => setHover(null)}
-                      onClick={() => navigate(`/towns/${t.id}`)}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`${t.name}, status ${t.status}. Open details.`}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          navigate(`/towns/${t.id}`)
-                        }
-                      }}
-                    >
-                      <circle r={active ? 9 : 6} fill={color} opacity={0.9} />
-                      <circle r={active ? 9 : 6} fill="none" stroke="white" strokeOpacity={0.5} strokeWidth={1.5} />
-                      {active && (
-                        <text x={11} y={4} fill="white" fontSize={13} style={{ paintOrder: 'stroke' }} stroke="rgba(0,0,0,0.6)" strokeWidth={3}>
-                          {t.name}
-                        </text>
-                      )}
-                    </g>
-                  )
-                })}
-              </svg>
-            </div>
+                aria-label={`Map of ${placed} onboarded municipalities. A full list follows.`}
+              />
+            )}
             {statusList.length > 0 && (
               <div className="flex flex-wrap gap-3 mt-3 px-1">
                 {statusList.map((s) => (
@@ -197,39 +193,41 @@ export function StateMap() {
 
           <div className="space-y-4">
             <Card className="!p-4">
-              <h3 className="font-semibold text-white mb-3">On the map ({placed.length})</h3>
+              <h3 className="font-semibold text-white mb-1">On the map ({placed})</h3>
+              <p className="text-xs text-white/40 mb-3">{withBoundary} with a boundary polygon.</p>
               <ul className="space-y-1.5">
-                {placed.map((t) => (
-                  <li key={t.id}>
+                {feats.map((f) => (
+                  <li key={f.properties.id}>
                     <button
-                      onClick={() => navigate(`/towns/${t.id}`)}
+                      onClick={() => navigate(`/towns/${f.properties.id}`)}
                       className="w-full flex items-center gap-2 text-left px-2 py-1.5 rounded-lg hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                     >
-                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: STATUS_COLOR[t.status] || '#94a3b8' }} />
-                      <span className="text-sm text-white truncate flex-1">{t.name}</span>
-                      <StatusBadge status={t.status} />
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: STATUS_COLOR[f.properties.status] || '#94a3b8' }} />
+                      <span className="text-sm text-white truncate flex-1">{f.properties.name}</span>
+                      {!f.properties.has_boundary && (
+                        <span title="Point only — no boundary yet"><MapPin className="w-3.5 h-3.5 text-white/30" /></span>
+                      )}
+                      <StatusBadge status={f.properties.status} />
                     </button>
                   </li>
                 ))}
-                {placed.length === 0 && <li className="text-sm text-white/40 px-2">None placed yet.</li>}
               </ul>
             </Card>
 
-            {unplaced.length > 0 && (
-              <Card className="!p-4">
-                <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
-                  <Building2 className="w-4 h-4" /> Not on the map ({unplaced.length})
-                </h3>
-                <p className="text-xs text-white/40 mb-3">Add latitude/longitude on a town's Domain &amp; contact tab to place it.</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {unplaced.map((t) => (
-                    <button key={t.id} onClick={() => navigate(`/towns/${t.id}`)} className="focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 rounded-full">
-                      <Badge>{t.name}</Badge>
-                    </button>
-                  ))}
+            <Card className="!p-4">
+              <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
+                <Building2 className="w-4 h-4" /> Boundaries
+              </h3>
+              <p className="text-xs text-white/50">
+                Attach a town's real boundary from its <b>Domain &amp; contact</b> tab — search
+                OpenStreetMap and save the polygon. Towns without one show as a point.
+              </p>
+              {placed - withBoundary > 0 && (
+                <div className="mt-2">
+                  <Badge variant="warning">{placed - withBoundary} without a boundary</Badge>
                 </div>
-              </Card>
-            )}
+              )}
+            </Card>
           </div>
         </div>
       )}

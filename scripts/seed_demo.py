@@ -17,6 +17,7 @@ PANEL_DATABASE_URL at the same DB the panel uses.
 
 import argparse
 import datetime
+import math
 import random
 
 from orchestrator.db import SessionLocal, init_db
@@ -47,6 +48,36 @@ LOCAL_CATS = {
 }
 
 
+def _synthetic_boundary(lat: float, lon: float, rnd: random.Random) -> dict:
+    """An irregular closed polygon around a centroid — stands in for a real
+    municipal boundary on the map. Production pulls the true polygon from
+    OpenStreetMap via the boundary picker; this just makes the demo map show
+    real-looking town shapes without a live network call.
+
+    Longitude is scaled by cos(lat) so the shape isn't stretched at NJ
+    latitudes, and each vertex radius is jittered so towns look distinct.
+    """
+    n = rnd.randint(11, 16)
+    base = rnd.uniform(0.020, 0.045)  # ~1.5–3 mi across
+    coslat = math.cos(math.radians(lat)) or 1.0
+    ring = []
+    for i in range(n):
+        ang = 2 * math.pi * i / n
+        r = base * rnd.uniform(0.72, 1.28)
+        ring.append([
+            round(lon + (r * math.cos(ang)) / coslat, 6),
+            round(lat + r * math.sin(ang), 6),
+        ])
+    ring.append(ring[0])  # close the ring
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {"type": "Feature", "properties": {"synthetic": True},
+             "geometry": {"type": "Polygon", "coordinates": [ring]}}
+        ],
+    }
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--reset", action="store_true", help="wipe existing tenants first")
@@ -75,6 +106,7 @@ def main():
             key_assignments=normalize_assignments({}),
             managed_settings=managed_settings.defaults(),
             contact_name="Town Clerk", contact_email=f"clerk@{slug}.gov",
+            boundary=_synthetic_boundary(lat, lon, rnd),
         )
         db.add(t)
         db.flush()

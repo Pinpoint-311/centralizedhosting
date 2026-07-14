@@ -310,3 +310,34 @@ export interface Announcement2 {
   created_at: string
   created_by: string | null
 }
+
+// GIS / State Map
+export interface GeoFeature {
+  type: 'Feature'
+  geometry: { type: string; coordinates: unknown }
+  properties: {
+    id: string
+    name: string
+    slug: string
+    status: string
+    county: string | null
+    has_boundary: boolean
+  }
+}
+
+export interface GeoFeatureCollection {
+  type: 'FeatureCollection'
+  features: GeoFeature[]
+  placed?: number
+  total?: number
+}
+
+export interface OsmResult {
+  osm_id: number
+  display_name: string
+  type: string | null
+  class: string | null
+  lat: string | null
+  lon: string | null
+  geojson: unknown
+}
