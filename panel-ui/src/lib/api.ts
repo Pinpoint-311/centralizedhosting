@@ -1,18 +1,25 @@
 import type {
   Alert,
+  Analytics,
+  Announcement2,
   AuditEntry,
   BreakGlassGrant,
   BulkResultRow,
+  ComplianceSummary,
   CostSummary,
   FleetSummary,
   KeyCatalog,
+  LegalHold,
+  ManagedField,
   ProvisionJob,
+  PublicStatus,
   Release,
   Rollout,
   SecretOut,
   SlaSummary,
   Tenant,
   TownRequest,
+  Transparency,
   WhoAmI,
 } from './types'
 
@@ -151,4 +158,30 @@ export const api = {
   submitRequest: (body: Record<string, unknown>) => req<TownRequest>('POST', '/api/requests', body),
   approveRequest: (id: string) => req<Tenant>('POST', `/api/requests/${id}/approve`),
   rejectRequest: (id: string) => req<TownRequest>('POST', `/api/requests/${id}/reject`),
+
+  // region-only 311 analytics
+  analytics: () => req<Analytics>('GET', '/api/analytics'),
+  taxonomy: () => req<{ categories: { code: string; label: string; group: string | null }[] }>('GET', '/api/taxonomy'),
+  getMappings: (id: string) => req<{ mappings: Record<string, string> }>('GET', `/api/tenants/${id}/category-mappings`),
+  putMappings: (id: string, mappings: Record<string, string>) =>
+    req<{ mappings: Record<string, string> }>('PUT', `/api/tenants/${id}/category-mappings`, { mappings }),
+
+  // managed policy + legal hold
+  managedCatalog: () => req<{ catalog: ManagedField[] }>('GET', '/api/managed-settings/catalog'),
+  getManaged: (id: string) => req<{ settings: Record<string, unknown> }>('GET', `/api/tenants/${id}/managed-settings`),
+  putManaged: (id: string, settings: Record<string, unknown>) =>
+    req<{ settings: Record<string, unknown>; pushed_to_instance: boolean }>('PUT', `/api/tenants/${id}/managed-settings`, { settings }),
+  getLegalHold: (id: string) => req<LegalHold>('GET', `/api/tenants/${id}/legal-hold`),
+  setLegalHold: (id: string, on: boolean, reason: string) =>
+    req<LegalHold>('POST', `/api/tenants/${id}/legal-hold`, { on, reason }),
+
+  // compliance + transparency
+  compliance: () => req<ComplianceSummary>('GET', '/api/compliance/summary'),
+  transparency: (id: string) => req<Transparency>('GET', `/api/tenants/${id}/transparency`),
+
+  // status + announcements
+  publicStatus: () => req<PublicStatus>('GET', '/api/status'),
+  listAnnouncements: () => req<Announcement2[]>('GET', '/api/announcements'),
+  createAnnouncement: (body: Record<string, unknown>) => req<Announcement2>('POST', '/api/announcements', body),
+  deleteAnnouncement: (id: string) => req<void>('DELETE', `/api/announcements/${id}`),
 }

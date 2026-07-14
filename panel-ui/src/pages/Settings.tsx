@@ -58,6 +58,8 @@ export function Settings() {
       <PageHeader title="Settings" subtitle="Program-wide configuration and shared credentials." />
 
       <div className="space-y-4">
+        <Announcements />
+
         <Card>
           <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
             <ShieldCheck className="w-5 h-5" /> Security &amp; compliance
@@ -227,6 +229,77 @@ function SharedCredentials({
                 <Check className="w-3 h-3" /> set
               </Badge>
             )}
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+// ------------------------------------------------ Announcements / status page
+import { Megaphone, Trash2, Plus } from 'lucide-react'
+import type { Announcement2 } from '../lib/types'
+import { Input, Select } from '../components/ui'
+
+function Announcements() {
+  const toast = useToast()
+  const [items, setItems] = useState<Announcement2[]>([])
+  const [title, setTitle] = useState('')
+  const [severity, setSeverity] = useState('info')
+  const [busy, setBusy] = useState(false)
+
+  async function load() {
+    setItems(await api.listAnnouncements())
+  }
+  useEffect(() => {
+    load().catch(() => {})
+  }, [])
+
+  async function create() {
+    if (!title.trim()) return
+    setBusy(true)
+    try {
+      await api.createAnnouncement({ title: title.trim(), severity })
+      setTitle('')
+      toast.push('Announcement posted to the public status page')
+      await load()
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function remove(id: string) {
+    await api.deleteAnnouncement(id)
+    await load()
+  }
+
+  return (
+    <Card>
+      <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
+        <Megaphone className="w-5 h-5" /> Status announcements
+      </h3>
+      <p className="text-sm text-white/50 mb-4">
+        Posted to the public status page at <code className="text-white/70">/status</code> — maintenance windows and incidents.
+      </p>
+      <div className="flex flex-col sm:flex-row gap-2 mb-4">
+        <Input placeholder="e.g. Planned maintenance Saturday 2–4am ET" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <div className="w-44 shrink-0">
+          <Select value={severity} onChange={(e) => setSeverity(e.target.value)} options={[
+            { value: 'info', label: 'Info' },
+            { value: 'maintenance', label: 'Maintenance' },
+            { value: 'incident', label: 'Incident' },
+          ]} />
+        </div>
+        <Button onClick={create} isLoading={busy} leftIcon={<Plus className="w-4 h-4" />}>Post</Button>
+      </div>
+      <div className="space-y-1.5">
+        {items.length === 0 && <p className="text-white/40 text-sm">No announcements.</p>}
+        {items.map((a) => (
+          <div key={a.id} className="flex items-center gap-2 py-1.5 border-b border-white/5">
+            <Badge variant={a.severity === 'incident' ? 'danger' : a.severity === 'maintenance' ? 'warning' : 'info'}>{a.severity}</Badge>
+            <span className="text-white text-sm flex-1">{a.title}</span>
+            <button onClick={() => remove(a.id)} className="text-white/40 hover:text-red-300" aria-label="Delete announcement"><Trash2 className="w-4 h-4" /></button>
           </div>
         ))}
       </div>

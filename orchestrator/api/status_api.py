@@ -46,7 +46,7 @@ def public_status(db: Session = Depends(get_db)):
     elif any(a.severity == "maintenance" for a in anns):
         overall = "maintenance"
     return {
-        "program": settings.region_label,
+        "program": f"Pinpoint 311 · {settings.base_domain}",
         "overall": overall,
         "municipalities_operational": operational,
         "municipalities_total": total,

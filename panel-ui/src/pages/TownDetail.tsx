@@ -18,6 +18,9 @@ import {
   Copy,
   Save,
   FileCode2,
+  Scale,
+  Eye,
+  X,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { useSession } from '../lib/session'
@@ -36,8 +39,8 @@ import {
 import { KeyMatrix } from '../components/KeyMatrix'
 import { useToast } from '../components/Toast'
 
-import { getBaseDomain } from '../lib/config'
-type TabId = 'overview' | 'domain' | 'keys' | 'provisioning' | 'breakglass'
+import { getBaseDomain, getRegionLabel } from '../lib/config'
+type TabId = 'overview' | 'domain' | 'keys' | 'policy' | 'transparency' | 'provisioning' | 'breakglass'
 
 export function TownDetail() {
   const BASE_DOMAIN = getBaseDomain()
@@ -85,6 +88,8 @@ export function TownDetail() {
     { id: 'overview', label: 'Overview', icon: <Server className="w-4 h-4" /> },
     { id: 'domain', label: 'Domain & contact', icon: <Globe className="w-4 h-4" /> },
     { id: 'keys', label: 'API keys', icon: <KeyRound className="w-4 h-4" /> },
+    { id: 'policy', label: 'Policy & legal hold', icon: <Scale className="w-4 h-4" /> },
+    { id: 'transparency', label: 'Transparency', icon: <Eye className="w-4 h-4" /> },
     { id: 'provisioning', label: 'Provisioning', icon: <ListChecks className="w-4 h-4" /> },
     { id: 'breakglass', label: 'Break-glass', icon: <ShieldAlert className="w-4 h-4" /> },
   ]
@@ -193,6 +198,8 @@ export function TownDetail() {
       {tab === 'overview' && <Overview tenant={tenant} />}
       {tab === 'domain' && <DomainContact tenant={tenant} onSaved={load} />}
       {tab === 'keys' && <KeysTab tenant={tenant} onChanged={load} />}
+      {tab === 'policy' && <PolicyTab tenant={tenant} />}
+      {tab === 'transparency' && <TransparencyTab tenant={tenant} />}
       {tab === 'provisioning' && <Provisioning tenant={tenant} />}
       {tab === 'breakglass' && <BreakGlass tenant={tenant} />}
 
@@ -295,6 +302,7 @@ function DomainContact({ tenant, onSaved }: { tenant: Tenant; onSaved: () => voi
     notes: tenant.notes || '',
     latitude: tenant.latitude != null ? String(tenant.latitude) : '',
     longitude: tenant.longitude != null ? String(tenant.longitude) : '',
+    county: tenant.county || '',
     tags: (tenant.tags || []).join(', '),
   })
   function set(k: keyof typeof form, v: string) {
@@ -312,6 +320,7 @@ function DomainContact({ tenant, onSaved }: { tenant: Tenant; onSaved: () => voi
         contact_phone: form.contact_phone || null,
         address: form.address || null,
         notes: form.notes || null,
+        county: form.county.trim() || null,
         tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
         latitude: form.latitude.trim() ? Number(form.latitude) : null,
         longitude: form.longitude.trim() ? Number(form.longitude) : null,
@@ -344,6 +353,9 @@ function DomainContact({ tenant, onSaved }: { tenant: Tenant; onSaved: () => voi
 
       <Card>
         <h3 className="font-semibold text-white mb-4">Municipality contact</h3>
+        <div className="mb-4">
+          <Input label={getRegionLabel()} value={form.county} onChange={(e) => set('county', e.target.value)} placeholder={`e.g. the ${getRegionLabel().toLowerCase()} this town is in`} helperText="Used for region-level analytics rollups." />
+        </div>
         <div className="grid sm:grid-cols-2 gap-4">
           <Input label="Primary contact" value={form.contact_name} onChange={(e) => set('contact_name', e.target.value)} />
           <Input label="Title" value={form.contact_title} onChange={(e) => set('contact_title', e.target.value)} />
@@ -755,5 +767,202 @@ function DangerZone({ tenant, onDone }: { tenant: Tenant; onDone: () => void }) 
         </div>
       </Modal>
     </>
+  )
+}
+
+// ---------------------------------------------------------------- Policy tab
+function PolicyTab({ tenant }: { tenant: Tenant }) {
+  const toast = useToast()
+  const { can } = useSession()
+  const [catalog, setCatalog] = useState<import('../lib/types').ManagedField[]>([])
+  const [values, setValues] = useState<Record<string, unknown>>({})
+  const [hold, setHold] = useState<import('../lib/types').LegalHold | null>(null)
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [holdReason, setHoldReason] = useState('')
+
+  async function load() {
+    const [cat, ms, lh] = await Promise.all([
+      api.managedCatalog(),
+      api.getManaged(tenant.id),
+      api.getLegalHold(tenant.id),
+    ])
+    setCatalog(cat.catalog)
+    setValues(ms.settings)
+    setHold(lh)
+  }
+  useEffect(() => {
+    load().catch((e) => toast.push((e as Error).message, 'error'))
+  }, [tenant.id])
+
+  async function save() {
+    setSaving(true)
+    try {
+      const r = await api.putManaged(tenant.id, values)
+      setValues(r.settings)
+      setDirty(false)
+      toast.push('Policy saved' + (r.pushed_to_instance ? ' and pushed to the town' : ' (applies at next provision)'))
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function toggleHold(on: boolean) {
+    if (!holdReason.trim() || holdReason.trim().length < 3) {
+      toast.push('Enter a reason for the legal hold', 'error')
+      return
+    }
+    try {
+      setHold(await api.setLegalHold(tenant.id, on, holdReason.trim()))
+      setHoldReason('')
+      toast.push(on ? 'State legal hold placed' : 'State legal hold lifted')
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    }
+  }
+
+  if (!catalog.length) return <Spinner />
+  const groups = Array.from(new Set(catalog.map((f) => f.group)))
+
+  return (
+    <div className="space-y-4">
+      {/* Legal hold — shared */}
+      <Card>
+        <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
+          <Scale className="w-5 h-5 text-amber-300" /> Legal hold (shared)
+        </h3>
+        <p className="text-sm text-white/50 mb-4">
+          Either the state or the town can place a hold; the effective hold is either one, and
+          neither party can clear the other's. Placing a hold suspends all deletion/purge.
+        </p>
+        <div className="grid sm:grid-cols-3 gap-3 mb-4">
+          <div className="p-3 rounded-lg bg-white/[0.03] border border-white/10">
+            <div className="text-xs text-white/40">State hold</div>
+            <div className={`font-semibold ${hold?.state_hold ? 'text-amber-300' : 'text-white/50'}`}>{hold?.state_hold ? 'ON' : 'off'}</div>
+          </div>
+          <div className="p-3 rounded-lg bg-white/[0.03] border border-white/10">
+            <div className="text-xs text-white/40">Town hold</div>
+            <div className={`font-semibold ${hold?.town_hold ? 'text-amber-300' : 'text-white/50'}`}>{hold?.town_hold ? 'ON' : 'off'}</div>
+          </div>
+          <div className="p-3 rounded-lg bg-white/[0.03] border border-white/10">
+            <div className="text-xs text-white/40">Effective</div>
+            <div className={`font-semibold ${hold?.effective ? 'text-amber-300' : 'text-green-300'}`}>{hold?.effective ? 'HELD' : 'none'}</div>
+          </div>
+        </div>
+        {can('approver') ? (
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Input placeholder="Reason (audited) — e.g. litigation hold, ticket #" value={holdReason} onChange={(e) => setHoldReason(e.target.value)} />
+            {hold?.state_hold ? (
+              <Button variant="secondary" onClick={() => toggleHold(false)}>Lift state hold</Button>
+            ) : (
+              <Button variant="danger" onClick={() => toggleHold(true)} leftIcon={<Scale className="w-4 h-4" />}>Place state hold</Button>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-white/40">Approver role required to change the state hold.</p>
+        )}
+      </Card>
+
+      {/* Managed policy */}
+      <Card>
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-semibold text-white">State-managed policy</h3>
+          {dirty && can('operator') && <Button size="sm" onClick={save} isLoading={saving} leftIcon={<Save className="w-4 h-4" />}>Save</Button>}
+        </div>
+        <p className="text-sm text-white/50 mb-4">
+          Set by the state, applied by the town, shown read-only in the town's console. The town
+          still <b>operates</b> its own records/OPRA requests — only the policy is state-set.
+        </p>
+        {groups.map((g) => (
+          <div key={g} className="mb-5">
+            <div className="text-xs uppercase tracking-wide text-white/40 mb-2">{g}</div>
+            <div className="space-y-3">
+              {catalog.filter((f) => f.group === g).map((f) => (
+                <div key={f.key} className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <div className="sm:w-72 shrink-0">
+                    <div className="text-sm text-white flex items-center gap-2">
+                      {f.label}
+                      {f.scope === 'shared' && <Badge>shared</Badge>}
+                    </div>
+                    <div className="text-xs text-white/40">{f.help}</div>
+                  </div>
+                  <div className="flex-1">
+                    {f.type === 'bool' ? (
+                      <button
+                        disabled={!can('operator')}
+                        onClick={() => { setValues((v) => ({ ...v, [f.key]: !v[f.key] })); setDirty(true) }}
+                        className={`px-3 py-1.5 text-sm rounded-lg border ${values[f.key] ? 'bg-indigo-500/30 border-indigo-400/40 text-white' : 'border-white/15 text-white/60'}`}
+                      >
+                        {values[f.key] ? 'Enabled' : 'Disabled'}
+                      </button>
+                    ) : (
+                      <input
+                        disabled={!can('operator')}
+                        className="glass-input max-w-xs"
+                        type={f.type === 'int' ? 'number' : 'text'}
+                        value={String(values[f.key] ?? '')}
+                        onChange={(e) => { setValues((v) => ({ ...v, [f.key]: f.type === 'int' ? Number(e.target.value) : e.target.value })); setDirty(true) }}
+                      />
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </Card>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------ Transparency tab
+function TransparencyTab({ tenant }: { tenant: Tenant }) {
+  const toast = useToast()
+  const [data, setData] = useState<import('../lib/types').Transparency | null>(null)
+  useEffect(() => {
+    api.transparency(tenant.id).then(setData).catch((e) => toast.push((e as Error).message, 'error'))
+  }, [tenant.id])
+  if (!data) return <Spinner />
+  return (
+    <div className="space-y-4">
+      <div className="grid md:grid-cols-2 gap-4">
+        <Card>
+          <h3 className="font-semibold text-white mb-3">What the state's panel holds</h3>
+          <ul className="space-y-2">
+            {data.metadata_panel_holds.map((m, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-white/70"><Check className="w-4 h-4 text-white/40 shrink-0 mt-0.5" />{m}</li>
+            ))}
+          </ul>
+        </Card>
+        <Card className="border border-green-500/20">
+          <h3 className="font-semibold text-white mb-3 flex items-center gap-2"><Eye className="w-5 h-5 text-green-300" /> What it never holds</h3>
+          <ul className="space-y-2">
+            {data.panel_never_holds.map((m, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-white/80"><X className="w-4 h-4 text-green-400 shrink-0 mt-0.5" />{m}</li>
+            ))}
+          </ul>
+        </Card>
+      </div>
+      <Card>
+        <h3 className="font-semibold text-white mb-1">State access events</h3>
+        <p className="text-sm text-white/50 mb-3">Every time the state accessed or held this town — visible to the town, always.</p>
+        {data.state_access_events.length === 0 ? (
+          <p className="text-white/40 text-sm">No state access events on record.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {data.state_access_events.map((e, i) => (
+              <div key={i} className="flex items-start gap-3 text-sm py-1.5 border-b border-white/5">
+                <Badge variant="warning">{e.action.replace('tenant.', '').replace('breakglass.', 'break-glass ')}</Badge>
+                <span className="text-white/70">{e.actor}</span>
+                <span className="text-white/40 flex-1">{e.detail?.reason ? String(e.detail.reason) : ''}</span>
+                <span className="text-white/40">{timeAgo(e.at)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
   )
 }

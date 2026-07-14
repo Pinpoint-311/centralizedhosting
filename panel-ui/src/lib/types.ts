@@ -24,7 +24,9 @@ export interface Tenant {
   notes: string | null
   latitude: number | null
   longitude: number | null
+  county: string | null
   tags: string[]
+  managed_settings: Record<string, unknown>
   key_assignments: Record<string, string>
   running_version: string | null
   target_version: string | null
@@ -222,14 +224,89 @@ export interface BulkResultRow {
 
 export interface TownRequest {
   id: string
+  ref_code: string | null
   name: string
   requested_slug: string | null
+  county: string | null
   contact_name: string | null
   contact_email: string | null
+  contact_phone: string | null
   message: string | null
+  details: Record<string, unknown>
+  key_preferences: Record<string, string>
   status: 'pending' | 'approved' | 'rejected'
   tenant_id: string | null
   created_at: string
   decided_at: string | null
   decided_by: string | null
+}
+
+export interface Analytics {
+  program_total_requests: number
+  by_canonical_category: Record<string, number>
+  regions: Record<string, string | number | null>[]
+  unmapped_requests: number
+  min_cell: number
+  towns_withheld_for_privacy: number
+  note: string
+}
+
+export interface ManagedField {
+  key: string
+  label: string
+  type: 'int' | 'bool' | 'str'
+  default: unknown
+  help: string
+  group: string
+  scope: 'state' | 'shared'
+}
+
+export interface LegalHold {
+  state_hold: boolean
+  town_hold: boolean
+  effective: boolean
+  pushed_to_instance?: boolean
+}
+
+export interface ComplianceTown {
+  id: string
+  slug: string
+  name: string
+  county: string | null
+  checks: Record<string, boolean>
+  score: number
+  legal_hold: boolean
+}
+export interface ComplianceSummary {
+  towns: ComplianceTown[]
+  total: number
+  passing_by_check: Record<string, number>
+}
+
+export interface Transparency {
+  town: { name: string; slug: string; host: string }
+  metadata_panel_holds: string[]
+  panel_never_holds: string[]
+  state_access_events: { action: string; actor: string; at: string; detail: Record<string, unknown> }[]
+  break_glass_grants: { actor: string; reason: string; at: string; expires_at: string; revoked: boolean }[]
+}
+
+export interface PublicStatus {
+  program: string
+  overall: 'operational' | 'maintenance' | 'incident'
+  municipalities_operational: number
+  municipalities_total: number
+  announcements: { title: string; body: string | null; severity: string; starts_at: string | null; ends_at: string | null }[]
+}
+
+export interface Announcement2 {
+  id: string
+  title: string
+  body: string | null
+  severity: string
+  active: boolean
+  starts_at: string | null
+  ends_at: string | null
+  created_at: string
+  created_by: string | null
 }
