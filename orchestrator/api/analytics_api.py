@@ -11,11 +11,11 @@ from orchestrator.config import settings
 from orchestrator.db import get_db
 from orchestrator.models import (
     CategoryMapping,
-    Release,
     ServiceCategory,
     Tenant,
     TenantStatus,
 )
+from orchestrator.queries import latest_release
 from orchestrator.security import require_operator, require_panel_token
 
 router = APIRouter(prefix="/api", tags=["analytics"])
@@ -77,7 +77,7 @@ def compliance(db: Session = Depends(get_db), _: str = Depends(require_panel_tok
     is infrastructure/policy metadata (not resident data): encryption, backups,
     version currency, retention, accessibility, legal hold."""
     tenants = db.execute(select(Tenant).where(Tenant.status != TenantStatus.DECOMMISSIONED)).scalars().all()
-    latest = db.execute(select(Release).order_by(Release.published_at.desc())).scalars().first()
+    latest = latest_release(db)
     rows = []
     for t in tenants:
         ms = managed_settings.normalize(t.managed_settings)

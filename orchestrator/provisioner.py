@@ -28,6 +28,7 @@ from orchestrator.models import (
     TenantStatus,
     utcnow,
 )
+from orchestrator.queries import latest_release
 from orchestrator.security import decrypt_value, encrypt_value, generate_secret
 
 logger = logging.getLogger(__name__)
@@ -133,9 +134,7 @@ def release_for_version(db: Session, version: str) -> Release | None:
 def _target_version(db: Session, tenant: Tenant) -> str:
     if tenant.target_version:
         return tenant.target_version
-    latest = db.execute(
-        select(Release).order_by(Release.published_at.desc())
-    ).scalars().first()
+    latest = latest_release(db)
     return latest.version if latest else "latest"
 
 
