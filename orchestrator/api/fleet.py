@@ -9,8 +9,9 @@ from sqlalchemy.orm import Session
 from orchestrator import audit
 from orchestrator.app_client import client_for_tenant
 from orchestrator.db import get_db
-from orchestrator.models import Release, TelemetrySnapshot, Tenant, TenantStatus
+from orchestrator.models import TelemetrySnapshot, Tenant, TenantStatus
 from orchestrator.provisioner import get_platform_secret
+from orchestrator.queries import latest_release, latest_snapshots
 from orchestrator.security import require_operator, require_panel_token
 from orchestrator.telemetry import sanitize_telemetry
 
@@ -23,15 +24,6 @@ def _operational_only(payload: dict | None) -> dict | None:
     if not payload:
         return payload
     return {k: v for k, v in payload.items() if k not in ("request_stats",)}
-
-
-def _latest_snapshots(db: Session) -> dict[str, TelemetrySnapshot]:
-    latest: dict[str, TelemetrySnapshot] = {}
-    for snap in db.execute(
-        select(TelemetrySnapshot).order_by(TelemetrySnapshot.collected_at)
-    ).scalars():
-        latest[snap.tenant_id] = snap
-    return latest
 
 
 @router.post("/refresh")
@@ -80,10 +72,8 @@ def refresh_telemetry(
 @router.get("/summary")
 def fleet_summary(db: Session = Depends(get_db), _: str = Depends(require_panel_token)):
     tenants = db.execute(select(Tenant)).scalars().all()
-    latest_release = db.execute(
-        select(Release).order_by(Release.published_at.desc())
-    ).scalars().first()
-    snapshots = _latest_snapshots(db)
+    latest = latest_release(db)
+    snapshots = latest_snapshots(db)
 
     status_counts = Counter(t.status for t in tenants)
     version_counts = Counter(t.running_version or "unknown" for t in tenants
@@ -102,9 +92,9 @@ def fleet_summary(db: Session = Depends(get_db), _: str = Depends(require_panel_
                 "running_version": t.running_version,
                 "target_version": t.target_version,
                 "drift": bool(
-                    latest_release
+                    latest
                     and t.status == TenantStatus.ACTIVE
-                    and t.running_version != latest_release.version
+                    and t.running_version != latest.version
                 ),
                 "reachable": snap.reachable if snap else None,
                 "last_seen": snap.collected_at.isoformat() if snap else None,
@@ -118,7 +108,7 @@ def fleet_summary(db: Session = Depends(get_db), _: str = Depends(require_panel_
         "tenants_total": len(tenants),
         "status_counts": dict(status_counts),
         "version_counts": dict(version_counts),
-        "latest_release": latest_release.version if latest_release else None,
+        "latest_release": latest.version if latest else None,
         "drifted": sum(1 for t in towns if t["drift"]),
         "towns": towns,
     }
@@ -126,10 +116,8 @@ def fleet_summary(db: Session = Depends(get_db), _: str = Depends(require_panel_
 
 @router.get("/drift")
 def fleet_drift(db: Session = Depends(get_db), _: str = Depends(require_panel_token)):
-    latest_release = db.execute(
-        select(Release).order_by(Release.published_at.desc())
-    ).scalars().first()
-    if not latest_release:
+    latest = latest_release(db)
+    if not latest:
         return {"latest_release": None, "drifted_towns": []}
     tenants = db.execute(
         select(Tenant).where(Tenant.status == TenantStatus.ACTIVE)
@@ -137,6 +125,6 @@ def fleet_drift(db: Session = Depends(get_db), _: str = Depends(require_panel_to
     drifted = [
         {"slug": t.slug, "running_version": t.running_version, "target_version": t.target_version}
         for t in tenants
-        if t.running_version != latest_release.version
+        if t.running_version != latest.version
     ]
-    return {"latest_release": latest_release.version, "drifted_towns": drifted}
+    return {"latest_release": latest.version, "drifted_towns": drifted}

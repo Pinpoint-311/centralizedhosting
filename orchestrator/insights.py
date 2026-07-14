@@ -16,7 +16,8 @@ from orchestrator.key_catalog import (
     owner_is_state,
     service_for_key,
 )
-from orchestrator.models import Alert, Release, TelemetrySnapshot, Tenant, TenantStatus, utcnow
+from orchestrator.models import Alert, TelemetrySnapshot, Tenant, TenantStatus, utcnow
+from orchestrator.queries import latest_release, latest_snapshots
 
 # Fallback per-unit cost estimates (USD) when a town's telemetry doesn't carry
 # an explicit cost. Deployments can tune these; they only affect the rollup.
@@ -39,15 +40,6 @@ SERVICE_BY_USAGE = {
 }
 
 
-def _latest_snapshots(db: Session) -> dict[str, TelemetrySnapshot]:
-    latest: dict[str, TelemetrySnapshot] = {}
-    for snap in db.execute(
-        select(TelemetrySnapshot).order_by(TelemetrySnapshot.collected_at)
-    ).scalars():
-        latest[snap.tenant_id] = snap
-    return latest
-
-
 def _usage_cost(usage: dict) -> float:
     """Estimate a service's cost from its usage counters, honoring an explicit
     `cost` field when the town reports one."""
@@ -67,7 +59,7 @@ def cost_summary(db: Session) -> dict:
     """Per-town and fleet cost, split into state-borne vs town-borne using each
     town's key-responsibility matrix. Powers the chargeback view."""
     tenants = db.execute(select(Tenant)).scalars().all()
-    snaps = _latest_snapshots(db)
+    snaps = latest_snapshots(db)
 
     towns = []
     fleet_state = fleet_town = 0.0
@@ -163,10 +155,8 @@ def evaluate_alerts(db: Session) -> list[Alert]:
     tenants = db.execute(
         select(Tenant).where(Tenant.status == TenantStatus.ACTIVE)
     ).scalars().all()
-    latest_release = db.execute(
-        select(Release).order_by(Release.published_at.desc())
-    ).scalars().first()
-    snaps = _latest_snapshots(db)
+    latest = latest_release(db)
+    snaps = latest_snapshots(db)
 
     open_alerts = db.execute(
         select(Alert).where(Alert.acknowledged_at.is_(None))
@@ -188,10 +178,10 @@ def evaluate_alerts(db: Session) -> list[Alert]:
         snap = snaps.get(t.id)
         if snap is not None and snap.reachable is False:
             raise_alert(t, "down", "critical", f"{t.name} is not reachable.")
-        if latest_release and t.running_version and t.running_version != latest_release.version:
+        if latest and t.running_version and t.running_version != latest.version:
             raise_alert(
                 t, "drift", "warning",
-                f"{t.name} runs {t.running_version}; latest is {latest_release.version}.",
+                f"{t.name} runs {t.running_version}; latest is {latest.version}.",
             )
 
     if new:
@@ -238,7 +228,7 @@ def analytics(db: Session, min_cell: int | None = None, region_label: str = "reg
 
     min_cell = settings.analytics_min_cell if min_cell is None else min_cell
     tenants = db.execute(select(Tenant)).scalars().all()
-    snaps = _latest_snapshots(db)
+    snaps = latest_snapshots(db)
 
     by_category: dict[str, int] = defaultdict(int)
     region_acc: dict[str, dict] = defaultdict(lambda: {"total": 0, "closed": 0, "towns": 0})

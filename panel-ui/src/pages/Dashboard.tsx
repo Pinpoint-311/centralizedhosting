@@ -24,18 +24,9 @@ import {
 } from 'recharts'
 import { api } from '../lib/api'
 import type { FleetSummary } from '../lib/types'
-import { Button, Card, Spinner, StatusBadge, timeAgo } from '../components/ui'
+import { Button, Card, Spinner, StatusBadge, STATUS_COLOR as STATUS_COLORS, timeAgo } from '../components/ui'
 import { PageHeader } from '../components/Shell'
 import { useToast } from '../components/Toast'
-
-const STATUS_COLORS: Record<string, string> = {
-  active: '#22c55e',
-  pending: '#3b82f6',
-  provisioning: '#f59e0b',
-  suspended: '#f59e0b',
-  failed: '#ef4444',
-  decommissioned: '#6b7280',
-}
 
 function StatTile({
   icon,
