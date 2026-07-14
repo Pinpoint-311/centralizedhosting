@@ -4,7 +4,7 @@ WORKDIR /ui
 COPY panel-ui/package.json panel-ui/package-lock.json* ./
 RUN npm install --no-audit --no-fund
 COPY panel-ui/ ./
-# Vite's outDir points at ../orchestrator/static; redirect it here for the copy.
+# Vite outDir points at ../orchestrator/static; redirect it here for the copy.
 RUN npm run build -- --outDir dist --emptyOutDir
 
 # ---- Stage 2: python runtime ------------------------------------------------
@@ -15,7 +15,13 @@ WORKDIR /panel
 # Docker CLI + compose plugin so the panel can apply per-town stacks on the
 # managed host (APPLY_STACKS=true). Render-only deployments can drop this.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates docker.io docker-compose-v2 \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && curl -fsSL https://download.docker.com/linux/static/stable/$(uname -m)/docker-27.5.1.tgz \
+       | tar xz --strip-components=1 -C /usr/local/bin docker/docker \
+    && mkdir -p /usr/local/lib/docker/cli-plugins \
+    && curl -fsSL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m) \
+       -o /usr/local/lib/docker/cli-plugins/docker-compose \
+    && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./

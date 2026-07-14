@@ -69,9 +69,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    ports:
-      # Loopback only — public traffic reaches the town via the host Caddy.
-      - "127.0.0.1:{{ tenant.backend_port }}:8000"
+    networks:
+      - default
+      - shared
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8000/api/health/quick" ]
       interval: 30s
@@ -113,8 +113,9 @@ services:
   frontend:
     image: {{ frontend_ref }}
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:{{ tenant.frontend_port }}:80"
+    networks:
+      - default
+      - shared
     environment:
       - VITE_API_URL=/api
     security_opt:
@@ -127,3 +128,8 @@ services:
 
 volumes:
   postgres_data:
+
+networks:
+  shared:
+    external: true
+    name: pp311-towns

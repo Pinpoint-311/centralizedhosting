@@ -95,5 +95,5 @@ class AppClient:
 def client_for_tenant(tenant, **kwargs) -> AppClient:
     """Panel reaches town backends on their loopback port of the managed host
     (MVP compose shape). Swap base_url derivation when moving to k8s."""
-    base_url = f"http://127.0.0.1:{tenant.backend_port}"
+    base_url = f"http://pp311-{tenant.slug}-backend-1:8000"
     return AppClient(base_url, **kwargs)
