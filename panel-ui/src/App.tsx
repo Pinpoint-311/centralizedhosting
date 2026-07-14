@@ -13,6 +13,8 @@ import { TownDetail } from './pages/TownDetail'
 import { StateMap } from './pages/StateMap'
 import { Cost } from './pages/Cost'
 import { Sla } from './pages/Sla'
+import { Analytics } from './pages/Analytics'
+import { Compliance } from './pages/Compliance'
 import { Alerts } from './pages/Alerts'
 import { Requests } from './pages/Requests'
 import { Releases } from './pages/Releases'
@@ -63,6 +65,8 @@ export function App() {
                 <Route path="/map" element={<StateMap />} />
                 <Route path="/cost" element={<Cost />} />
                 <Route path="/sla" element={<Sla />} />
+                <Route path="/analytics" element={<Analytics />} />
+                <Route path="/compliance" element={<Compliance />} />
                 <Route path="/alerts" element={<Alerts />} />
                 <Route path="/requests" element={<Requests />} />
                 <Route path="/releases" element={<Releases />} />

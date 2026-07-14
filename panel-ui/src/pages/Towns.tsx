@@ -34,7 +34,7 @@ const PLANS = [
   { value: 'large', label: 'Large (metro)' },
 ]
 
-import { getBaseDomain } from '../lib/config'
+import { getBaseDomain, getRegionLabel, getRegions } from '../lib/config'
 
 function slugify(s: string) {
   return s
@@ -203,6 +203,7 @@ interface Draft {
   domainMode: 'subdomain' | 'custom'
   custom_domain: string
   region: string
+  county: string
   plan: string
   contact_name: string
   contact_title: string
@@ -215,6 +216,8 @@ interface Draft {
 
 function AddTownWizard({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const BASE_DOMAIN = getBaseDomain()
+  const REGION_LABEL = getRegionLabel()
+  const REGION_OPTIONS = getRegions().map((r) => ({ value: r, label: r }))
   const [step, setStep] = useState(0)
   const [saving, setSaving] = useState(false)
   const [catalog, setCatalog] = useState<KeyCatalog | null>(null)
@@ -226,6 +229,7 @@ function AddTownWizard({ onClose, onCreated }: { onClose: () => void; onCreated:
     domainMode: 'subdomain',
     custom_domain: '',
     region: 'us',
+    county: '',
     plan: 'standard',
     contact_name: '',
     contact_title: '',
@@ -261,6 +265,7 @@ function AddTownWizard({ onClose, onCreated }: { onClose: () => void; onCreated:
         name: d.name.trim(),
         slug: effectiveSlug,
         region: d.region,
+        county: d.county.trim() || null,
         plan: d.plan,
         contact_name: d.contact_name || null,
         contact_title: d.contact_title || null,
@@ -331,6 +336,11 @@ function AddTownWizard({ onClose, onCreated }: { onClose: () => void; onCreated:
             <Select label="Region" options={REGIONS} value={d.region} onChange={(e) => set('region', e.target.value)} />
             <Select label="Plan" options={PLANS} value={d.plan} onChange={(e) => set('plan', e.target.value)} />
           </div>
+          {REGION_OPTIONS.length > 0 ? (
+            <Select label={REGION_LABEL} options={[{ value: '', label: `— select ${REGION_LABEL.toLowerCase()} —` }, ...REGION_OPTIONS]} value={d.county} onChange={(e) => set('county', e.target.value)} />
+          ) : (
+            <Input label={REGION_LABEL} value={d.county} onChange={(e) => set('county', e.target.value)} helperText="Used for region-level analytics rollups." />
+          )}
         </div>
       )}
 

@@ -67,16 +67,26 @@ export function Requests() {
             <Card key={r.id} className="!p-4">
               <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-white">{r.name}</span>
                     <Badge variant={r.status === 'pending' ? 'info' : r.status === 'approved' ? 'success' : 'default'}>{r.status}</Badge>
+                    {r.ref_code && <code className="text-[11px] text-indigo-200">{r.ref_code}</code>}
+                    {r.county && <Badge>{r.county}</Badge>}
                     {r.requested_slug && <code className="text-[11px] text-white/40">{r.requested_slug}</code>}
                   </div>
                   <div className="text-sm text-white/50 flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
                     {r.contact_name && <span>{r.contact_name}</span>}
                     {r.contact_email && <a href={`mailto:${r.contact_email}`} className="flex items-center gap-1 hover:text-indigo-300"><Mail className="w-3.5 h-3.5" />{r.contact_email}</a>}
+                    {r.contact_phone && <span>{r.contact_phone}</span>}
                     <span>{timeAgo(r.created_at)}</span>
                   </div>
+                  {Object.keys(r.details || {}).length > 0 && (
+                    <div className="text-xs text-white/50 flex flex-wrap gap-x-3 mt-1.5">
+                      {Object.entries(r.details).map(([k, v]) => (
+                        <span key={k}><span className="text-white/35">{k.replace(/_/g, ' ')}:</span> {String(v)}</span>
+                      ))}
+                    </div>
+                  )}
                   {r.message && <p className="text-sm text-white/60 mt-2">{r.message}</p>}
                 </div>
                 {r.status === 'pending' && can('operator') && (
