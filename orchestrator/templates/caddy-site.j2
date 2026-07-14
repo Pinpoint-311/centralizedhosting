@@ -4,10 +4,10 @@
 	encode gzip
 
 	handle /api/* {
-		reverse_proxy 127.0.0.1:{{ tenant.backend_port }}
+		reverse_proxy pp311-{{ tenant.slug }}-backend-1:8000
 	}
 
 	handle {
-		reverse_proxy 127.0.0.1:{{ tenant.frontend_port }}
+		reverse_proxy pp311-{{ tenant.slug }}-frontend-1:80
 	}
 }
