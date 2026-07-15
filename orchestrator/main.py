@@ -10,7 +10,6 @@ from orchestrator.api import (
     admin,
     analytics_api,
     audit_api,
-    breakglass,
     fleet,
     gis,
     insights_api,
@@ -75,7 +74,6 @@ def create_app() -> FastAPI:
     app.include_router(releases.router)
     app.include_router(fleet.router)
     app.include_router(gis.router)
-    app.include_router(breakglass.router)
     app.include_router(audit_api.router)
     app.include_router(admin.router)
     app.include_router(insights_api.router)

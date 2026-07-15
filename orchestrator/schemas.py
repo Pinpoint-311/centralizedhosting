@@ -271,29 +271,6 @@ class RolloutOut(BaseModel):
     steps: list[RolloutStepOut] = []
 
 
-class BreakGlassRequest(BaseModel):
-    tenant_id: str
-    actor: str = Field(min_length=1, max_length=255)
-    reason: str = Field(min_length=10)  # a real justification, audited
-    minutes: int = Field(default=30, ge=1)
-
-
-class BreakGlassOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    tenant_id: str
-    actor: str
-    reason: str
-    expires_at: datetime
-    revoked_at: datetime | None
-    created_at: datetime
-
-
-class BreakGlassIssued(BreakGlassOut):
-    token: str  # returned exactly once, never stored in plaintext
-
-
 class AuditOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

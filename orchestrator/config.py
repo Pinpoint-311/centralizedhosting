@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     """Panel configuration. Every value is env-overridable (upper-cased name)."""
 
     # Panel's own persistence + crypto. PANEL_SECRET_KEY encrypts brokered
-    # secrets at rest and signs break-glass tokens — set a strong unique value.
+    # secrets at rest — set a strong unique value.
     panel_database_url: str = "sqlite:///./panel.db"
     panel_secret_key: str = "dev-panel-secret-change-me"
     # Operator API auth. Empty -> the API fails closed (503 on every call).
@@ -72,9 +72,6 @@ class Settings(BaseSettings):
 
     # Release management
     canary_count: int = 1
-
-    # Break-glass grants are time-boxed; requests above this are clamped.
-    break_glass_max_minutes: int = 60
 
     telemetry_timeout_seconds: float = 5.0
 

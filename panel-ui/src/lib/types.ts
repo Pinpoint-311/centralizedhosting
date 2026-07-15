@@ -134,17 +134,6 @@ export interface FleetSummary {
   towns: FleetTown[]
 }
 
-export interface BreakGlassGrant {
-  id: string
-  tenant_id: string
-  actor: string
-  reason: string
-  expires_at: string
-  revoked_at: string | null
-  created_at: string
-  token?: string
-}
-
 export interface AuditEntry {
   id: string
   seq: number
@@ -288,7 +277,6 @@ export interface Transparency {
   metadata_panel_holds: string[]
   panel_never_holds: string[]
   state_access_events: { action: string; actor: string; at: string; detail: Record<string, unknown> }[]
-  break_glass_grants: { actor: string; reason: string; at: string; expires_at: string; revoked: boolean }[]
 }
 
 export interface PublicStatus {
