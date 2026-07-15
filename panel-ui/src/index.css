@@ -191,3 +191,31 @@ select.glass-input option {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ========================================================================
+   WCAG AA contrast overrides (ported from the app).
+   Low-opacity white text (text-white/40 ≈ 2.9:1 on #1e1b4b) fails 4.5:1.
+   Lift muted text to a readable floor so it passes AA on every surface —
+   the app does exactly this; without it, muted text renders too dark.
+   ======================================================================== */
+.text-white\/20,
+.text-white\/25,
+.text-white\/30,
+.text-white\/35,
+.text-white\/40,
+.text-white\/45 {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+.text-white\/50,
+.text-white\/55 {
+  color: rgba(255, 255, 255, 0.75) !important;
+}
+.text-white\/60 {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+/* Inputs' placeholder text is muted too — keep it readable. */
+.glass-input::placeholder,
+input::placeholder,
+textarea::placeholder {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
