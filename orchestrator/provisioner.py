@@ -177,6 +177,18 @@ def _step_generate_provisioning_token(db: Session, tenant: Tenant, ctx: dict) ->
     return (DONE, "PROVISIONING_TOKEN generated") if created else (SKIPPED, "already present")
 
 
+def _step_generate_admin_setup(db: Session, tenant: Tenant, ctx: dict) -> tuple[str, str]:
+    """One-time setup password the town admin enters at the app's first-run
+    screen (INITIAL_ADMIN_PASSWORD) to create their own admin account. Injected
+    into the town's env like any other platform secret; the panel surfaces it so
+    the state can hand it off (the state never logs in with it)."""
+    if get_platform_secret(db, tenant.id, "INITIAL_ADMIN_PASSWORD"):
+        return SKIPPED, "setup password already generated"
+    # Shorter than the machine secrets — a human copies this one.
+    set_platform_secret(db, tenant.id, "INITIAL_ADMIN_PASSWORD", generate_secret(12))
+    return DONE, "one-time admin setup password generated"
+
+
 def _step_assign_kms_key(db: Session, tenant: Tenant, ctx: dict) -> tuple[str, str]:
     # Per-town key in the state's shared KMS (plan open decision #1). The ref
     # is what enables crypto-shred on decommission: destroy this key and every
@@ -278,6 +290,7 @@ PIPELINE = [
     ("allocate_database", _step_allocate_database),
     ("generate_secret_key", _step_generate_secret_key),
     ("generate_provisioning_token", _step_generate_provisioning_token),
+    ("generate_admin_setup", _step_generate_admin_setup),
     ("assign_kms_key", _step_assign_kms_key),
     ("allocate_storage", _step_allocate_storage),
     ("allocate_ports", _step_allocate_ports),

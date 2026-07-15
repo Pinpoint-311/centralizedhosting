@@ -81,6 +81,8 @@ export const api = {
   updateTenant: (id: string, body: Record<string, unknown>) =>
     req<Tenant>('PATCH', `/api/tenants/${id}`, body),
   provision: (id: string) => req<ProvisionJob>('POST', `/api/tenants/${id}/provision`),
+  setupCredential: (id: string) =>
+    req<{ setup_url: string; initial_admin_password: string; note: string }>('GET', `/api/tenants/${id}/setup-credential`),
   listJobs: (id: string) => req<ProvisionJob[]>('GET', `/api/tenants/${id}/jobs`),
   suspend: (id: string) => req<Tenant>('POST', `/api/tenants/${id}/suspend`),
   resume: (id: string) => req<Tenant>('POST', `/api/tenants/${id}/resume`),

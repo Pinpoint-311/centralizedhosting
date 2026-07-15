@@ -23,6 +23,8 @@ import random
 from orchestrator.db import SessionLocal, init_db
 from orchestrator import managed_settings
 from orchestrator.key_catalog import normalize_assignments
+from orchestrator.provisioner import set_platform_secret
+from orchestrator.security import generate_secret
 from orchestrator.models import (
     Alert, Announcement, CategoryMapping, ServiceCategory, TelemetrySnapshot,
     Tenant, TenantStatus, TownRequest, utcnow,
@@ -110,6 +112,8 @@ def main():
         )
         db.add(t)
         db.flush()
+        # one-time setup password the state hands to the town admin
+        set_platform_secret(db, t.id, "INITIAL_ADMIN_PASSWORD", generate_secret(12))
         # category mappings + 311 telemetry
         for local, canon in LOCAL_CATS.items():
             db.add(CategoryMapping(tenant_id=t.id, local_key=local.lower(), canonical_code=canon))

@@ -709,14 +709,6 @@ function Provisioning({ tenant }: { tenant: Tenant }) {
   }, [tenant.id])
 
   if (loading) return <Spinner />
-  if (jobs.length === 0)
-    return (
-      <Card>
-        <p className="text-white/50 text-center py-6">
-          No provisioning runs yet. Use <b>Provision</b> above to create this town's stack.
-        </p>
-      </Card>
-    )
 
   const stepColor: Record<string, string> = {
     done: 'text-green-300',
@@ -727,6 +719,14 @@ function Provisioning({ tenant }: { tenant: Tenant }) {
 
   return (
     <div className="space-y-4">
+      <SetupCredential tenant={tenant} />
+      {jobs.length === 0 && (
+        <Card>
+          <p className="text-white/50 text-center py-6">
+            No provisioning runs yet. Use <b>Provision</b> above to create this town's stack.
+          </p>
+        </Card>
+      )}
       {jobs.map((job) => (
         <Card key={job.id}>
           <div className="flex items-center justify-between mb-3">
@@ -765,6 +765,65 @@ function Provisioning({ tenant }: { tenant: Tenant }) {
         </Card>
       ))}
     </div>
+  )
+}
+
+// ------------------------------------------------- Town setup credential
+function SetupCredential({ tenant }: { tenant: Tenant }) {
+  const toast = useToast()
+  const { can } = useSession()
+  const [cred, setCred] = useState<{ setup_url: string; initial_admin_password: string; note: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function reveal() {
+    setBusy(true)
+    try {
+      setCred(await api.setupCredential(tenant.id))
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
+        <KeyRound className="w-5 h-5" /> Town setup credential
+      </h3>
+      <p className="text-sm text-white/50 mb-4">
+        The one-time setup password the town admin enters at their app's first-run screen to create
+        their own admin account. Hand it off, then have them rotate it — the state never logs in with it.
+      </p>
+      {!cred ? (
+        <Button variant="secondary" onClick={reveal} isLoading={busy} disabled={!can('approver')} leftIcon={<Eye className="w-4 h-4" />}>
+          {can('approver') ? 'Reveal setup password' : 'Approver role required'}
+        </Button>
+      ) : (
+        <div className="space-y-3">
+          <div>
+            <div className="text-xs text-white/40 uppercase tracking-wide mb-1">Setup URL</div>
+            <a href={cred.setup_url} target="_blank" rel="noreferrer" className="text-sm text-indigo-300 hover:text-indigo-200 break-all">
+              {cred.setup_url}
+            </a>
+          </div>
+          <div>
+            <div className="text-xs text-white/40 uppercase tracking-wide mb-1">Setup password (INITIAL_ADMIN_PASSWORD)</div>
+            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30">
+              <code className="text-sm text-amber-100 break-all flex-1">{cred.initial_admin_password}</code>
+              <button
+                onClick={() => { navigator.clipboard.writeText(cred.initial_admin_password); toast.push('Copied') }}
+                className="text-amber-300 hover:text-white shrink-0"
+                aria-label="Copy setup password"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+          <p className="text-xs text-white/40">{cred.note}</p>
+        </div>
+      )}
+    </Card>
   )
 }
 
