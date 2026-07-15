@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { NavLink, useLocation, useNavigate, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -169,13 +170,19 @@ export interface HubTab {
   subtitle?: string
 }
 
+// A page's action buttons portal into the hub's tab row (right side) so they
+// align with the tabs instead of floating on a separate band.
+const HubActionSlot = createContext<HTMLElement | null>(null)
+
 /**
  * A hub groups related pages under one sidebar entry. It owns the page title +
  * subtitle and renders a pill tab bar to switch between its pages; the pages
- * themselves render only their content (and any page-specific action buttons).
+ * themselves render only their content (and any page-specific action buttons,
+ * which appear on the right of the tab row via PageToolbar).
  */
 export function HubShell({ title, tabs }: { title: string; tabs: HubTab[] }) {
   const location = useLocation()
+  const [slot, setSlot] = useState<HTMLElement | null>(null)
   const active =
     tabs.find((t) => location.pathname === t.to || location.pathname.startsWith(t.to + '/')) || tabs[0]
 
@@ -186,35 +193,46 @@ export function HubShell({ title, tabs }: { title: string; tabs: HubTab[] }) {
         {active?.subtitle && <p className="text-white/50 mt-1">{active.subtitle}</p>}
       </div>
 
-      {tabs.length > 1 && (
-        <div className="flex flex-wrap gap-1 mb-6 p-1 rounded-xl bg-white/[0.04] border border-white/10 w-fit">
-          {tabs.map((t) => {
-            const isActive =
-              location.pathname === t.to || location.pathname.startsWith(t.to + '/')
-            return (
-              <NavLink
-                key={t.to}
-                to={t.to}
-                className={`px-3.5 py-1.5 rounded-lg text-sm transition-colors ${
-                  isActive
-                    ? 'bg-primary-500/25 text-white font-medium'
-                    : 'text-white/55 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                {t.label}
-              </NavLink>
-            )
-          })}
-        </div>
-      )}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        {tabs.length > 1 ? (
+          <div className="flex flex-wrap gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/10 w-fit">
+            {tabs.map((t) => {
+              const isActive =
+                location.pathname === t.to || location.pathname.startsWith(t.to + '/')
+              return (
+                <NavLink
+                  key={t.to}
+                  to={t.to}
+                  className={`px-3.5 py-1.5 rounded-lg text-sm transition-colors ${
+                    isActive
+                      ? 'bg-primary-500/25 text-white font-medium'
+                      : 'text-white/55 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  {t.label}
+                </NavLink>
+              )
+            })}
+          </div>
+        ) : (
+          <div />
+        )}
+        {/* Actions from the active page land here, aligned with the tabs. */}
+        <div ref={setSlot} className="flex flex-wrap items-center gap-2" />
+      </div>
 
-      <Outlet />
+      <HubActionSlot.Provider value={slot}>
+        <Outlet />
+      </HubActionSlot.Provider>
     </div>
   )
 }
 
-/** Right-aligned toolbar for a hub page's own action buttons (the hub owns the
- * title, so pages that had header actions render them here instead). */
+/** A hub page's own action buttons — rendered into the tab row's right side so
+ * they align with the tabs (the hub owns the title). */
 export function PageToolbar({ children }: { children: React.ReactNode }) {
-  return <div className="flex flex-wrap items-center justify-end gap-2 mb-6 -mt-2">{children}</div>
+  const slot = useContext(HubActionSlot)
+  if (slot) return createPortal(children, slot)
+  // Fallback (used outside a hub, or before the slot mounts): inline, right-aligned.
+  return <div className="flex flex-wrap items-center justify-end gap-2 mb-6">{children}</div>
 }
