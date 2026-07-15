@@ -3,7 +3,6 @@ import type {
   Analytics,
   Announcement2,
   AuditEntry,
-  BreakGlassGrant,
   BulkResultRow,
   ComplianceSummary,
   CostSummary,
@@ -124,12 +123,6 @@ export const api = {
   // fleet
   fleetSummary: () => req<FleetSummary>('GET', '/api/fleet/summary'),
   fleetRefresh: () => req<{ polled: number; reachable: number }>('POST', '/api/fleet/refresh'),
-
-  // break-glass
-  listGrants: () => req<BreakGlassGrant[]>('GET', '/api/breakglass'),
-  issueGrant: (body: Record<string, unknown>) =>
-    req<BreakGlassGrant>('POST', '/api/breakglass', body),
-  revokeGrant: (id: string) => req<BreakGlassGrant>('POST', `/api/breakglass/${id}/revoke`),
 
   // audit
   audit: (params = '') => req<AuditEntry[]>('GET', `/api/audit${params}`),

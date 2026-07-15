@@ -140,18 +140,15 @@ def transparency(
 ):
     """The town's trust report: exactly what metadata the panel holds about
     this town, an explicit statement of what it does NOT hold (resident data),
-    and every state access event (break-glass) against it."""
-    from orchestrator.models import AuditLog, BreakGlassGrant
+    and every state action against it. The panel is fully air-gapped from
+    resident data — there is no break-glass, no path into the town's instance."""
+    from orchestrator.models import AuditLog
 
     tenant = _get_tenant(db, tenant_id)
-    grants = db.execute(
-        select(BreakGlassGrant).where(BreakGlassGrant.tenant_id == tenant_id)
-        .order_by(BreakGlassGrant.created_at.desc())
-    ).scalars().all()
     access_events = db.execute(
         select(AuditLog).where(
             AuditLog.tenant_id == tenant_id,
-            AuditLog.action.in_(["breakglass.issued", "breakglass.revoked", "tenant.legal_hold_set"]),
+            AuditLog.action.in_(["tenant.legal_hold_set"]),
         ).order_by(AuditLog.seq.desc()).limit(50)
     ).scalars().all()
     return {
@@ -169,17 +166,13 @@ def transparency(
             "Service-request contents or attachments",
             "Your residents' data in any form — it stays in your isolated instance",
             "Your town's individual 311 figures shown to other towns (region-only)",
+            "Any login or path into your instance — there is no break-glass access",
         ],
         "state_access_events": [
             {"action": e.action, "actor": e.actor, "at": e.created_at.isoformat(),
              "detail": {k: v for k, v in (e.detail or {}).items() if k != "reason"} | (
                  {"reason": e.detail.get("reason")} if e.detail and e.detail.get("reason") else {})}
             for e in access_events
-        ],
-        "break_glass_grants": [
-            {"actor": g.actor, "reason": g.reason, "at": g.created_at.isoformat(),
-             "expires_at": g.expires_at.isoformat(), "revoked": bool(g.revoked_at)}
-            for g in grants
         ],
     }
 

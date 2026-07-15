@@ -1,6 +1,6 @@
 """Central compliance audit trail (B6): every provisioning, rollout, secret,
-lifecycle, and break-glass action lands here. Detail payloads are metadata
-only — never secret values, never resident data.
+and lifecycle action lands here. Detail payloads are metadata only — never
+secret values, never resident data.
 
 The trail is **tamper-evident**: entries form a hash chain (each entry's hash
 binds its content to the previous entry's hash), so any insertion, deletion, or

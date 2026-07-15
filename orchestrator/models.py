@@ -246,21 +246,6 @@ class TelemetrySnapshot(Base):
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
-class BreakGlassGrant(Base):
-    """B6/A8 — time-boxed, audited state-ops access. Token is shown once."""
-
-    __tablename__ = "break_glass_grants"
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
-    actor: Mapped[str] = mapped_column(String(255))
-    reason: Mapped[str] = mapped_column(Text)
-    token_id: Mapped[str] = mapped_column(String(32), unique=True, default=_uuid)
-    expires_at: Mapped[datetime] = mapped_column(DateTime)
-    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-
-
 class TownRequest(Base):
     """Self-service hosting request from a municipality. Lands in a pending
     queue; an operator approves (→ creates a Tenant) or rejects. Public intake

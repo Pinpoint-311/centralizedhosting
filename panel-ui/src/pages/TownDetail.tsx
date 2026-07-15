@@ -6,7 +6,6 @@ import {
   Globe,
   KeyRound,
   ListChecks,
-  ShieldAlert,
   Rocket,
   Pause,
   Play,
@@ -43,7 +42,7 @@ import { KeyMatrix } from '../components/KeyMatrix'
 import { useToast } from '../components/Toast'
 
 import { getBaseDomain, getRegionLabel } from '../lib/config'
-type TabId = 'overview' | 'domain' | 'keys' | 'policy' | 'transparency' | 'provisioning' | 'breakglass'
+type TabId = 'overview' | 'domain' | 'keys' | 'policy' | 'transparency' | 'provisioning'
 
 export function TownDetail() {
   const BASE_DOMAIN = getBaseDomain()
@@ -94,7 +93,6 @@ export function TownDetail() {
     { id: 'policy', label: 'Policy & legal hold', icon: <Scale className="w-4 h-4" /> },
     { id: 'transparency', label: 'Transparency', icon: <Eye className="w-4 h-4" /> },
     { id: 'provisioning', label: 'Provisioning', icon: <ListChecks className="w-4 h-4" /> },
-    { id: 'breakglass', label: 'Break-glass', icon: <ShieldAlert className="w-4 h-4" /> },
   ]
 
   return (
@@ -204,7 +202,6 @@ export function TownDetail() {
       {tab === 'policy' && <PolicyTab tenant={tenant} />}
       {tab === 'transparency' && <TransparencyTab tenant={tenant} />}
       {tab === 'provisioning' && <Provisioning tenant={tenant} />}
-      {tab === 'breakglass' && <BreakGlass tenant={tenant} />}
 
       {can('approver') && tenant.status !== 'decommissioned' && (
         <DangerZone tenant={tenant} onDone={() => navigate('/towns')} />
@@ -771,65 +768,6 @@ function Provisioning({ tenant }: { tenant: Tenant }) {
   )
 }
 
-// ---------------------------------------------------------------- Break-glass
-function BreakGlass({ tenant }: { tenant: Tenant }) {
-  const toast = useToast()
-  const [actor, setActor] = useState('')
-  const [reason, setReason] = useState('')
-  const [minutes, setMinutes] = useState(30)
-  const [issuing, setIssuing] = useState(false)
-  const [issued, setIssued] = useState<{ token: string; expires_at: string } | null>(null)
-
-  async function issue() {
-    setIssuing(true)
-    try {
-      const g = await api.issueGrant({ tenant_id: tenant.id, actor, reason, minutes })
-      setIssued({ token: g.token!, expires_at: g.expires_at })
-      toast.push('Break-glass token issued (shown once)')
-    } catch (e) {
-      toast.push((e as Error).message, 'error')
-    } finally {
-      setIssuing(false)
-    }
-  }
-
-  return (
-    <Card>
-      <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
-        <ShieldAlert className="w-5 h-5 text-amber-300" /> Emergency state-ops access
-      </h3>
-      <p className="text-sm text-white/50 mb-4">
-        Issues a time-boxed, audited token that a state operator exchanges at the town for a
-        temporary admin session. Every use is logged in the town's own audit trail as
-        <code className="text-white/70 mx-1">state_ops</code>. Requires the town to be provisioned.
-      </p>
-      {issued ? (
-        <div className="space-y-3">
-          <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
-            <div className="text-xs text-amber-200/70 mb-1">One-time token — copy it now, expires {timeAgo(issued.expires_at).replace('ago', 'from issue')}</div>
-            <div className="flex items-center gap-2">
-              <code className="text-xs text-amber-100 break-all flex-1">{issued.token}</code>
-              <button onClick={() => { navigator.clipboard.writeText(issued.token); toast.push('Copied') }} className="text-amber-300 hover:text-white shrink-0">
-                <Copy className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-          <Button variant="secondary" onClick={() => setIssued(null)}>Issue another</Button>
-        </div>
-      ) : (
-        <div className="space-y-4 max-w-lg">
-          <Input label="Operator (who is accessing)" placeholder="ops@state.gov" value={actor} onChange={(e) => setActor(e.target.value)} />
-          <Textarea label="Reason (audited)" placeholder="Investigating stuck migration for ticket #123" value={reason} onChange={(e) => setReason(e.target.value)} />
-          <Input label="Duration (minutes)" type="number" min={1} max={60} value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} helperText="Clamped to the panel maximum (60 min)." />
-          <Button onClick={issue} isLoading={issuing} disabled={!actor || reason.length < 10} leftIcon={<KeyRound className="w-4 h-4" />}>
-            Issue break-glass token
-          </Button>
-        </div>
-      )}
-    </Card>
-  )
-}
-
 // ---------------------------------------------------------------- Danger zone
 function DangerZone({ tenant, onDone }: { tenant: Tenant; onDone: () => void }) {
   const toast = useToast()
@@ -1061,15 +999,18 @@ function TransparencyTab({ tenant }: { tenant: Tenant }) {
         </Card>
       </div>
       <Card>
-        <h3 className="font-semibold text-white mb-1">State access events</h3>
-        <p className="text-sm text-white/50 mb-3">Every time the state accessed or held this town — visible to the town, always.</p>
+        <h3 className="font-semibold text-white mb-1">State actions on this town</h3>
+        <p className="text-sm text-white/50 mb-3">
+          The state can set policy (like a legal hold) but has <b>no access to your data</b> — there is
+          no break-glass or login into your instance. Every policy action is logged here for you.
+        </p>
         {data.state_access_events.length === 0 ? (
-          <p className="text-white/40 text-sm">No state access events on record.</p>
+          <p className="text-white/40 text-sm">No state actions on record.</p>
         ) : (
           <div className="space-y-1.5">
             {data.state_access_events.map((e, i) => (
               <div key={i} className="flex items-start gap-3 text-sm py-1.5 border-b border-white/5">
-                <Badge variant="warning">{e.action.replace('tenant.', '').replace('breakglass.', 'break-glass ')}</Badge>
+                <Badge variant="warning">{e.action.replace('tenant.', '').replace(/_/g, ' ')}</Badge>
                 <span className="text-white/70">{e.actor}</span>
                 <span className="text-white/40 flex-1">{e.detail?.reason ? String(e.detail.reason) : ''}</span>
                 <span className="text-white/40">{timeAgo(e.at)}</span>
