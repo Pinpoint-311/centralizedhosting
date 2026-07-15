@@ -4,7 +4,6 @@ import { ShieldCheck, Check, X, Scale } from 'lucide-react'
 import { api } from '../lib/api'
 import type { ComplianceSummary } from '../lib/types'
 import { Card, Spinner, EmptyState, Badge } from '../components/ui'
-import { PageHeader } from '../components/Shell'
 import { useToast } from '../components/Toast'
 
 const CHECK_LABEL: Record<string, string> = {
@@ -39,10 +38,6 @@ export function Compliance() {
 
   return (
     <div>
-      <PageHeader
-        title="Compliance & Posture"
-        subtitle="Security and policy posture across the fleet — the state's oversight view (infrastructure metadata, not resident data)."
-      />
       {data.total === 0 ? (
         <Card><EmptyState icon={<ShieldCheck className="w-7 h-7" />} title="No municipalities yet" /></Card>
       ) : (

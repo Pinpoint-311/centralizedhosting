@@ -3,7 +3,7 @@ import { Rocket, Plus, GitBranch, ChevronRight, PlayCircle, Undo2, Check } from 
 import { api } from '../lib/api'
 import type { Release, Rollout } from '../lib/types'
 import { Badge, Button, Card, EmptyState, Input, Modal, Spinner, Textarea, timeAgo } from '../components/ui'
-import { PageHeader } from '../components/Shell'
+import { PageToolbar } from '../components/Shell'
 import { useToast } from '../components/Toast'
 
 const ROLLOUT_VARIANT: Record<string, 'success' | 'warning' | 'danger' | 'info' | 'default'> = {
@@ -76,15 +76,11 @@ export function Releases() {
 
   return (
     <div>
-      <PageHeader
-        title="Releases"
-        subtitle="Publish app versions and roll them out to every municipality with a canary + automatic rollback."
-        actions={
-          <Button onClick={() => setShowPublish(true)} leftIcon={<Plus className="w-4 h-4" />}>
-            Publish release
-          </Button>
-        }
-      />
+      <PageToolbar>
+        <Button onClick={() => setShowPublish(true)} leftIcon={<Plus className="w-4 h-4" />}>
+          Publish release
+        </Button>
+      </PageToolbar>
 
       <div className="grid lg:grid-cols-2 gap-6">
         <div>

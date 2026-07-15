@@ -4,7 +4,7 @@ import { BellRing, RefreshCw, Check, AlertTriangle, WifiOff, GitBranch } from 'l
 import { api } from '../lib/api'
 import type { Alert } from '../lib/types'
 import { Badge, Button, Card, EmptyState, Spinner, timeAgo } from '../components/ui'
-import { PageHeader } from '../components/Shell'
+import { PageToolbar } from '../components/Shell'
 import { useToast } from '../components/Toast'
 import { useSession } from '../lib/session'
 
@@ -55,17 +55,13 @@ export function Alerts() {
 
   return (
     <div>
-      <PageHeader
-        title="Alerts"
-        subtitle="Fleet monitoring — towns down, version drift, and more."
-        actions={
-          can('operator') && (
-            <Button variant="secondary" onClick={evaluate} isLoading={busy === 'eval'} leftIcon={<RefreshCw className="w-4 h-4" />}>
-              Evaluate now
-            </Button>
-          )
-        }
-      />
+      {can('operator') && (
+        <PageToolbar>
+          <Button variant="secondary" onClick={evaluate} isLoading={busy === 'eval'} leftIcon={<RefreshCw className="w-4 h-4" />}>
+            Evaluate now
+          </Button>
+        </PageToolbar>
+      )}
       <div className="flex gap-2 mb-4">
         {[{ v: true, l: 'Open' }, { v: false, l: 'All' }].map((o) => (
           <button

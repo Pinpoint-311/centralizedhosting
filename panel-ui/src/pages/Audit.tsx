@@ -3,7 +3,7 @@ import { ScrollText, RefreshCw } from 'lucide-react'
 import { api } from '../lib/api'
 import type { AuditEntry } from '../lib/types'
 import { Badge, Button, Card, EmptyState, Spinner, timeAgo } from '../components/ui'
-import { PageHeader } from '../components/Shell'
+import { PageToolbar } from '../components/Shell'
 import { useToast } from '../components/Toast'
 
 function actionVariant(action: string): 'success' | 'warning' | 'danger' | 'info' | 'default' {
@@ -33,15 +33,11 @@ export function Audit() {
 
   return (
     <div>
-      <PageHeader
-        title="Audit Log"
-        subtitle="Every provisioning, rollout, secret, lifecycle, and break-glass action across the program."
-        actions={
-          <Button variant="secondary" onClick={load} leftIcon={<RefreshCw className="w-4 h-4" />}>
-            Refresh
-          </Button>
-        }
-      />
+      <PageToolbar>
+        <Button variant="secondary" onClick={load} leftIcon={<RefreshCw className="w-4 h-4" />}>
+          Refresh
+        </Button>
+      </PageToolbar>
       {loading ? (
         <Spinner />
       ) : entries.length === 0 ? (

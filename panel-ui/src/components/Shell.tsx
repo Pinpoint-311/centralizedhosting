@@ -1,17 +1,11 @@
 import { useEffect, useState } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard,
   Building2,
-  Map as MapIcon,
-  DollarSign,
-  Activity,
   BarChart3,
+  Activity,
   ShieldCheck,
-  BellRing,
-  Inbox,
-  Rocket,
-  ScrollText,
   Settings,
   LogOut,
   Menu,
@@ -20,25 +14,36 @@ import {
 import { api, clearToken } from '../lib/api'
 import { Logo } from './Logo'
 
-const NAV = [
-  { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
-  { to: '/towns', label: 'Municipalities', icon: Building2 },
-  { to: '/map', label: 'State Map', icon: MapIcon },
-  { to: '/analytics', label: '311 Analytics', icon: BarChart3 },
-  { to: '/cost', label: 'Cost & Chargeback', icon: DollarSign },
-  { to: '/compliance', label: 'Compliance', icon: ShieldCheck },
-  { to: '/sla', label: 'Uptime & SLA', icon: Activity },
-  { to: '/alerts', label: 'Alerts', icon: BellRing, badge: 'alerts' },
-  { to: '/requests', label: 'Hosting Requests', icon: Inbox },
-  { to: '/releases', label: 'Releases', icon: Rocket },
-  { to: '/audit', label: 'Audit Log', icon: ScrollText },
-  { to: '/settings', label: 'Settings', icon: Settings },
+// Five hubs + Settings. Each hub owns a set of routes (its tabs); the sidebar
+// item is active whenever the current path belongs to the hub.
+interface NavItem {
+  to: string
+  label: string
+  icon: typeof LayoutDashboard
+  owns: string[]
+  exact?: boolean
+  badge?: 'alerts'
+}
+
+const NAV: NavItem[] = [
+  { to: '/', label: 'Overview', icon: LayoutDashboard, owns: ['/'], exact: true },
+  { to: '/towns', label: 'Municipalities', icon: Building2, owns: ['/towns', '/map', '/requests'] },
+  { to: '/analytics', label: 'Insights', icon: BarChart3, owns: ['/analytics', '/cost'] },
+  { to: '/sla', label: 'Operations', icon: Activity, owns: ['/sla', '/alerts', '/releases'], badge: 'alerts' },
+  { to: '/compliance', label: 'Governance', icon: ShieldCheck, owns: ['/compliance', '/audit'] },
+  { to: '/settings', label: 'Settings', icon: Settings, owns: ['/settings'] },
 ]
+
+function isActive(pathname: string, item: NavItem): boolean {
+  if (item.exact) return pathname === item.to
+  return item.owns.some((p) => pathname === p || pathname.startsWith(p + '/'))
+}
 
 export function Shell({ children, onLogout }: { children: React.ReactNode; onLogout: () => void }) {
   const [open, setOpen] = useState(false)
   const [alertCount, setAlertCount] = useState(0)
   const navigate = useNavigate()
+  const location = useLocation()
 
   useEffect(() => {
     api.alerts(true).then((a) => setAlertCount(a.length)).catch(() => setAlertCount(0))
@@ -53,40 +58,40 @@ export function Shell({ children, onLogout }: { children: React.ReactNode; onLog
   const sidebar = (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-3 px-5 py-6">
-        <Logo size={40} />
+        <Logo size={38} />
         <div>
-          <div className="font-bold text-white leading-tight">Pinpoint 311</div>
+          <div className="font-semibold text-white leading-tight">Pinpoint 311</div>
           <div className="text-xs text-white/50">Hosting Control Plane</div>
         </div>
       </div>
 
       <nav aria-label="Primary" className="flex-1 px-3 space-y-1 overflow-y-auto">
-        {NAV.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.end}
-            onClick={() => setOpen(false)}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
-                isActive
-                  ? 'bg-white/10 text-white font-medium'
+        {NAV.map((item) => {
+          const active = isActive(location.pathname, item)
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              onClick={() => setOpen(false)}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
+                active
+                  ? 'bg-primary-500/20 text-white font-medium'
                   : 'text-white/60 hover:bg-white/5 hover:text-white'
-              }`
-            }
-          >
-            <item.icon className="w-5 h-5 shrink-0" />
-            <span className="flex-1">{item.label}</span>
-            {item.badge === 'alerts' && alertCount > 0 && (
-              <span className="text-[11px] font-semibold bg-red-500/80 text-white rounded-full px-1.5 min-w-[1.25rem] text-center">
-                {alertCount}
-              </span>
-            )}
-          </NavLink>
-        ))}
+              }`}
+            >
+              <item.icon className="w-5 h-5 shrink-0" />
+              <span className="flex-1">{item.label}</span>
+              {item.badge === 'alerts' && alertCount > 0 && (
+                <span className="text-[11px] font-semibold bg-red-500/80 text-white rounded-full px-1.5 min-w-[1.25rem] text-center">
+                  {alertCount}
+                </span>
+              )}
+            </NavLink>
+          )
+        })}
       </nav>
 
-      <div className="p-3 border-t border-white/10 space-y-1">
+      <div className="p-3 border-t border-white/10">
         <button
           onClick={logout}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/60 hover:bg-white/5 hover:text-white transition-colors"
@@ -101,7 +106,7 @@ export function Shell({ children, onLogout }: { children: React.ReactNode; onLog
   return (
     <div className="min-h-screen flex">
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-white/10 bg-[rgba(30,27,75,0.6)] backdrop-blur-xl sticky top-0 h-screen">
+      <aside className="hidden lg:flex w-64 shrink-0 flex-col glass-sidebar sticky top-0 h-screen">
         {sidebar}
       </aside>
 
@@ -109,17 +114,15 @@ export function Shell({ children, onLogout }: { children: React.ReactNode; onLog
       {open && (
         <div className="lg:hidden fixed inset-0 z-40 flex" role="dialog" aria-modal="true" aria-label="Navigation menu">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setOpen(false)} />
-          <div className="relative w-64 bg-[rgba(30,27,75,0.97)] backdrop-blur-xl border-r border-white/10">
-            {sidebar}
-          </div>
+          <div className="relative w-64 glass-sidebar">{sidebar}</div>
         </div>
       )}
 
       <div className="flex-1 min-w-0">
-        <header className="lg:hidden flex items-center justify-between px-4 py-3 border-b border-white/10 sticky top-0 z-30 bg-[rgba(30,27,75,0.8)] backdrop-blur-xl">
+        <header className="lg:hidden flex items-center justify-between px-4 py-3 border-b border-white/10 sticky top-0 z-30 bg-[rgba(30,27,75,0.85)] backdrop-blur-xl">
           <div className="flex items-center gap-2">
             <Logo size={32} />
-            <span className="font-bold text-white">Pinpoint 311</span>
+            <span className="font-semibold text-white">Pinpoint 311</span>
           </div>
           <button
             onClick={() => setOpen((o) => !o)}
@@ -157,4 +160,61 @@ export function PageHeader({
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </div>
   )
+}
+
+// ---------------------------------------------------------------- Hub layout
+export interface HubTab {
+  to: string
+  label: string
+  subtitle?: string
+}
+
+/**
+ * A hub groups related pages under one sidebar entry. It owns the page title +
+ * subtitle and renders a pill tab bar to switch between its pages; the pages
+ * themselves render only their content (and any page-specific action buttons).
+ */
+export function HubShell({ title, tabs }: { title: string; tabs: HubTab[] }) {
+  const location = useLocation()
+  const active =
+    tabs.find((t) => location.pathname === t.to || location.pathname.startsWith(t.to + '/')) || tabs[0]
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-white">{title}</h1>
+        {active?.subtitle && <p className="text-white/50 mt-1">{active.subtitle}</p>}
+      </div>
+
+      {tabs.length > 1 && (
+        <div className="flex flex-wrap gap-1 mb-6 p-1 rounded-xl bg-white/[0.04] border border-white/10 w-fit">
+          {tabs.map((t) => {
+            const isActive =
+              location.pathname === t.to || location.pathname.startsWith(t.to + '/')
+            return (
+              <NavLink
+                key={t.to}
+                to={t.to}
+                className={`px-3.5 py-1.5 rounded-lg text-sm transition-colors ${
+                  isActive
+                    ? 'bg-primary-500/25 text-white font-medium'
+                    : 'text-white/55 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                {t.label}
+              </NavLink>
+            )
+          })}
+        </div>
+      )}
+
+      <Outlet />
+    </div>
+  )
+}
+
+/** Right-aligned toolbar for a hub page's own action buttons (the hub owns the
+ * title, so pages that had header actions render them here instead). */
+export function PageToolbar({ children }: { children: React.ReactNode }) {
+  return <div className="flex flex-wrap items-center justify-end gap-2 mb-6 -mt-2">{children}</div>
 }

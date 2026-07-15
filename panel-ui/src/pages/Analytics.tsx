@@ -5,7 +5,6 @@ import { api } from '../lib/api'
 import type { Analytics as AnalyticsData } from '../lib/types'
 import { getRegionLabel, getRegionLabelPlural } from '../lib/config'
 import { Card, Spinner, EmptyState } from '../components/ui'
-import { PageHeader } from '../components/Shell'
 import { useToast } from '../components/Toast'
 
 export function Analytics() {
@@ -30,10 +29,6 @@ export function Analytics() {
 
   return (
     <div>
-      <PageHeader
-        title="311 Analytics"
-        subtitle={`Resident-request trends, aggregated by ${regionLabel.toLowerCase()} — never by individual municipality.`}
-      />
 
       <div className="flex items-start gap-3 mb-6 p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/25">
         <ShieldCheck className="w-5 h-5 text-indigo-300 shrink-0 mt-0.5" />

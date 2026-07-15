@@ -4,7 +4,6 @@ import { Inbox, Check, X, Mail } from 'lucide-react'
 import { api } from '../lib/api'
 import type { TownRequest } from '../lib/types'
 import { Badge, Button, Card, EmptyState, Spinner, timeAgo } from '../components/ui'
-import { PageHeader } from '../components/Shell'
 import { useToast } from '../components/Toast'
 import { useSession } from '../lib/session'
 
@@ -50,7 +49,6 @@ export function Requests() {
 
   return (
     <div>
-      <PageHeader title="Hosting Requests" subtitle="Municipalities that have asked to be onboarded." />
       {loading ? (
         <Spinner />
       ) : requests.length === 0 ? (
