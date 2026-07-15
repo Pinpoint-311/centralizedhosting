@@ -18,7 +18,7 @@ import {
   StatusBadge,
   Textarea,
 } from '../components/ui'
-import { PageHeader } from '../components/Shell'
+import { PageToolbar } from '../components/Shell'
 import { KeyMatrix, OWNER_META } from '../components/KeyMatrix'
 import { useToast } from '../components/Toast'
 
@@ -85,22 +85,16 @@ export function Towns() {
 
   return (
     <div>
-      <PageHeader
-        title="Municipalities"
-        subtitle="Towns and cities hosted on this control plane."
-        actions={
-          can('operator') && (
-            <div className="flex gap-2">
-              <Button variant="secondary" onClick={() => setShowBulk(true)} leftIcon={<Upload className="w-4 h-4" />}>
-                Bulk import
-              </Button>
-              <Button onClick={() => setShowAdd(true)} leftIcon={<Plus className="w-4 h-4" />}>
-                Add municipality
-              </Button>
-            </div>
-          )
-        }
-      />
+      {can('operator') && (
+        <PageToolbar>
+          <Button variant="secondary" onClick={() => setShowBulk(true)} leftIcon={<Upload className="w-4 h-4" />}>
+            Bulk import
+          </Button>
+          <Button onClick={() => setShowAdd(true)} leftIcon={<Plus className="w-4 h-4" />}>
+            Add municipality
+          </Button>
+        </PageToolbar>
+      )}
 
       {loading ? (
         <Spinner />

@@ -10,6 +10,8 @@ import {
   Settings,
   DollarSign,
   Activity,
+  BarChart3,
+  ShieldCheck,
   BellRing,
   Inbox,
 } from 'lucide-react'
@@ -64,7 +66,9 @@ export function CommandPalette() {
     { id: 'p-overview', label: 'Overview', icon: <LayoutDashboard className="w-4 h-4" />, action: () => go('/') },
     { id: 'p-towns', label: 'Municipalities', icon: <Building2 className="w-4 h-4" />, action: () => go('/towns') },
     { id: 'p-map', label: 'State Map', icon: <MapIcon className="w-4 h-4" />, action: () => go('/map') },
+    { id: 'p-analytics', label: '311 Analytics', icon: <BarChart3 className="w-4 h-4" />, action: () => go('/analytics') },
     { id: 'p-cost', label: 'Cost & Chargeback', icon: <DollarSign className="w-4 h-4" />, action: () => go('/cost') },
+    { id: 'p-compliance', label: 'Compliance', icon: <ShieldCheck className="w-4 h-4" />, action: () => go('/compliance') },
     { id: 'p-sla', label: 'Uptime & SLA', icon: <Activity className="w-4 h-4" />, action: () => go('/sla') },
     { id: 'p-alerts', label: 'Alerts', icon: <BellRing className="w-4 h-4" />, action: () => go('/alerts') },
     { id: 'p-requests', label: 'Hosting Requests', icon: <Inbox className="w-4 h-4" />, action: () => go('/requests') },

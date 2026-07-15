@@ -46,6 +46,81 @@ body {
     transition: all 0.3s ease;
   }
 
+  /* Sidebar surface — matches the app's glass-sidebar (indigo-950 tint). */
+  .glass-sidebar {
+    background: rgba(30, 27, 75, 0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  /* Premium hero surface: layered fill, masked gradient border, deep shadow —
+     ported verbatim from the app's .premium-card. Use for feature panels. */
+  .premium-card {
+    position: relative;
+    border-radius: 20px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%),
+      rgba(30, 27, 75, 0.35);
+    box-shadow:
+      0 24px 60px -24px rgba(0, 0, 0, 0.6),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  .premium-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 20px;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      rgba(165, 180, 252, 0.5) 0%,
+      rgba(255, 255, 255, 0.4) 45%,
+      rgba(99, 102, 241, 0.3) 100%
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+  .premium-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 30px 70px -24px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+
+  /* Soft indigo aurora behind hero headers. */
+  .aurora-glow {
+    position: relative;
+  }
+  .aurora-glow::after {
+    content: '';
+    position: absolute;
+    inset: -40% 20% auto 20%;
+    height: 60%;
+    background: radial-gradient(60% 100% at 50% 0%, rgba(99, 102, 241, 0.35) 0%, transparent 70%);
+    filter: blur(40px);
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  /* Diagonal light sweep on hover for primary actions. */
+  .shimmer-sweep {
+    position: relative;
+    overflow: hidden;
+  }
+  .shimmer-sweep::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.18) 50%, transparent 70%);
+    transform: translateX(-120%);
+    transition: transform 0.6s ease;
+  }
+  .shimmer-sweep:hover::after {
+    transform: translateX(120%);
+  }
+
   .glass-button {
     background: linear-gradient(135deg, rgba(99, 102, 241, 0.85) 0%, rgba(79, 70, 229, 0.85) 100%);
     border: 1px solid rgba(255, 255, 255, 0.2);
@@ -74,12 +149,19 @@ body {
   }
 
   .glass-input::placeholder {
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.6);
   }
 
   .glass-input:focus {
     border-color: rgba(99, 102, 241, 0.5);
     box-shadow: 0 0 20px rgba(99, 102, 241, 0.2);
+  }
+
+  /* Keyboard focus gets the app's amber ring for a clear a11y indicator. */
+  .glass-input:focus-visible {
+    outline: 3px solid #fbbf24;
+    outline-offset: 0;
+    border-color: #fbbf24;
   }
 
   .text-gradient {

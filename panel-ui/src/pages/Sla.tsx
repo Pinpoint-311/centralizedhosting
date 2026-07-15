@@ -4,7 +4,7 @@ import { Activity, Download } from 'lucide-react'
 import { api } from '../lib/api'
 import type { SlaSummary } from '../lib/types'
 import { Card, Spinner, EmptyState, Select } from '../components/ui'
-import { PageHeader } from '../components/Shell'
+import { PageToolbar } from '../components/Shell'
 import { useToast } from '../components/Toast'
 
 function uptimeColor(pct: number | null) {
@@ -39,24 +39,18 @@ export function Sla() {
 
   return (
     <div>
-      <PageHeader
-        title="Uptime & SLA"
-        subtitle="Per-municipality availability from telemetry reachability checks."
-        actions={
-          <div className="flex items-center gap-2">
-            <div className="w-36">
-              <Select
-                value={String(days)}
-                onChange={(e) => setDays(Number(e.target.value))}
-                options={[{ value: '7', label: 'Last 7 days' }, { value: '30', label: 'Last 30 days' }, { value: '90', label: 'Last 90 days' }]}
-              />
-            </div>
-            <button onClick={exportCsv} className="inline-flex items-center gap-2 px-4 py-2.5 text-sm rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
-              <Download className="w-4 h-4" /> Export
-            </button>
-          </div>
-        }
-      />
+      <PageToolbar>
+        <div className="w-36">
+          <Select
+            value={String(days)}
+            onChange={(e) => setDays(Number(e.target.value))}
+            options={[{ value: '7', label: 'Last 7 days' }, { value: '30', label: 'Last 30 days' }, { value: '90', label: 'Last 90 days' }]}
+          />
+        </div>
+        <button onClick={exportCsv} className="inline-flex items-center gap-2 px-4 py-2.5 text-sm rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
+          <Download className="w-4 h-4" /> Export
+        </button>
+      </PageToolbar>
       {loading ? (
         <Spinner />
       ) : !data || data.towns.length === 0 ? (

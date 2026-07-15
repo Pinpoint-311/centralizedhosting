@@ -11,49 +11,41 @@ import {
   Wifi,
   WifiOff,
 } from 'lucide-react'
-import {
-  PieChart,
-  Pie,
-  Cell,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-} from 'recharts'
 import { api } from '../lib/api'
 import type { FleetSummary } from '../lib/types'
-import { Button, Card, Spinner, StatusBadge, STATUS_COLOR as STATUS_COLORS, timeAgo } from '../components/ui'
+import { Button, Card, Spinner, StatusBadge, timeAgo } from '../components/ui'
 import { PageHeader } from '../components/Shell'
 import { useToast } from '../components/Toast'
 
-function StatTile({
+// A single premium KPI strip — calm, government-serious, one surface instead of
+// four floating tiles and two low-signal charts.
+function Kpi({
   icon,
   label,
   value,
   accent,
+  hint,
 }: {
   icon: React.ReactNode
   label: string
   value: React.ReactNode
   accent: string
+  hint?: string
 }) {
   return (
-    <Card className="!p-5">
-      <div className="flex items-center gap-4">
-        <div
-          className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-          style={{ background: `${accent}22`, color: accent }}
-        >
-          {icon}
-        </div>
-        <div className="min-w-0">
-          <div className="text-2xl font-bold text-white leading-tight">{value}</div>
-          <div className="text-sm text-white/50">{label}</div>
-        </div>
+    <div className="flex items-center gap-4 px-5 py-5">
+      <div
+        className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
+        style={{ background: `${accent}1f`, color: accent }}
+      >
+        {icon}
       </div>
-    </Card>
+      <div className="min-w-0">
+        <div className="text-[11px] font-medium uppercase tracking-wider text-white/45">{label}</div>
+        <div className="text-2xl font-bold text-white leading-tight mt-0.5">{value}</div>
+        {hint && <div className="text-xs text-white/40 mt-0.5">{hint}</div>}
+      </div>
+    </div>
   )
 }
 
@@ -75,7 +67,6 @@ export function Dashboard() {
 
   useEffect(() => {
     load()
-    // Auto-refresh the overview every 30s (metadata only; no telemetry poll).
     const timer = setInterval(() => api.fleetSummary().then(setData).catch(() => {}), 30000)
     return () => clearInterval(timer)
   }, [])
@@ -96,11 +87,7 @@ export function Dashboard() {
   if (loading) return <Spinner />
   if (!data) return null
 
-  const statusData = Object.entries(data.status_counts).map(([name, value]) => ({ name, value }))
-  const versionData = Object.entries(data.version_counts).map(([name, value]) => ({
-    name: name === 'unknown' ? 'unknown' : name,
-    value,
-  }))
+  const active = data.status_counts.active || 0
 
   return (
     <div>
@@ -119,78 +106,39 @@ export function Dashboard() {
         }
       />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatTile
-          icon={<Building2 className="w-6 h-6" />}
-          label="Municipalities"
-          value={data.tenants_total}
-          accent="#818cf8"
-        />
-        <StatTile
-          icon={<Activity className="w-6 h-6" />}
-          label="Active"
-          value={data.status_counts.active || 0}
-          accent="#22c55e"
-        />
-        <StatTile
-          icon={<GitBranch className="w-6 h-6" />}
-          label="Latest release"
-          value={<span className="text-lg">{data.latest_release || '—'}</span>}
-          accent="#38bdf8"
-        />
-        <StatTile
-          icon={<AlertTriangle className="w-6 h-6" />}
-          label="Version drift"
-          value={data.drifted}
-          accent={data.drifted ? '#f59e0b' : '#22c55e'}
-        />
-      </div>
-
-      {data.tenants_total > 0 && (
-        <div className="grid lg:grid-cols-2 gap-4 mb-6">
-          <Card>
-            <h3 className="font-semibold text-white mb-4">Status distribution</h3>
-            <div className="flex items-center gap-6">
-              <ResponsiveContainer width={160} height={160}>
-                <PieChart>
-                  <Pie data={statusData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={70} paddingAngle={2}>
-                    {statusData.map((s) => (
-                      <Cell key={s.name} fill={STATUS_COLORS[s.name] || '#6b7280'} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{ background: '#1e1b4b', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 12 }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="space-y-1.5">
-                {statusData.map((s) => (
-                  <div key={s.name} className="flex items-center gap-2 text-sm">
-                    <span className="w-3 h-3 rounded-full" style={{ background: STATUS_COLORS[s.name] || '#6b7280' }} />
-                    <span className="text-white/70 capitalize">{s.name}</span>
-                    <span className="text-white/40">· {s.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </Card>
-
-          <Card>
-            <h3 className="font-semibold text-white mb-4">Running versions</h3>
-            <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={versionData}>
-                <XAxis dataKey="name" tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 12 }} />
-                <YAxis allowDecimals={false} tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 12 }} />
-                <Tooltip
-                  cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-                  contentStyle={{ background: '#1e1b4b', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 12 }}
-                />
-                <Bar dataKey="value" fill="#818cf8" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </Card>
+      {/* One premium surface with the four numbers that matter. */}
+      <div className="premium-card mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 divide-y divide-x divide-white/10 lg:divide-y-0 [&>*]:min-w-0">
+          <Kpi
+            icon={<Building2 className="w-5 h-5" />}
+            label="Municipalities"
+            value={data.tenants_total}
+            accent="#818cf8"
+            hint="hosted on this control plane"
+          />
+          <Kpi
+            icon={<Activity className="w-5 h-5" />}
+            label="Active"
+            value={active}
+            accent="#22c55e"
+            hint={`${data.tenants_total - active} not active`}
+          />
+          <Kpi
+            icon={<AlertTriangle className="w-5 h-5" />}
+            label="Version drift"
+            value={data.drifted}
+            accent={data.drifted ? '#f59e0b' : '#22c55e'}
+            hint={data.drifted ? 'behind latest release' : 'all up to date'}
+          />
+          <Kpi
+            icon={<GitBranch className="w-5 h-5" />}
+            label="Latest release"
+            value={<span className="text-xl">{data.latest_release || '—'}</span>}
+            accent="#38bdf8"
+            hint="published version"
+          />
         </div>
-      )}
+      </div>
 
       <Card className="!p-0 overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
@@ -211,9 +159,9 @@ export function Dashboard() {
             {data.towns.map((t, i) => (
               <motion.div
                 key={t.id}
-                initial={{ opacity: 0, y: 8 }}
+                initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.03 }}
+                transition={{ delay: Math.min(i * 0.025, 0.3) }}
               >
                 <Link
                   to={`/towns/${t.id}`}

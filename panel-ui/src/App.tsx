@@ -5,7 +5,7 @@ import { getToken } from './lib/api'
 import { SessionProvider } from './lib/session'
 import { ToastProvider } from './components/Toast'
 import { TokenGate } from './components/TokenGate'
-import { Shell } from './components/Shell'
+import { Shell, HubShell, type HubTab } from './components/Shell'
 import { CommandPalette } from './components/CommandPalette'
 import { Dashboard } from './pages/Dashboard'
 import { Towns } from './pages/Towns'
@@ -21,6 +21,25 @@ import { Releases } from './pages/Releases'
 import { Audit } from './pages/Audit'
 import { Settings } from './pages/Settings'
 import { PublicRequest } from './pages/PublicRequest'
+
+const MUNI_TABS: HubTab[] = [
+  { to: '/towns', label: 'Directory', subtitle: 'Every municipality you host.' },
+  { to: '/map', label: 'State Map', subtitle: 'Onboarded municipalities and their boundaries — public geography from OpenStreetMap, never resident data.' },
+  { to: '/requests', label: 'Requests', subtitle: 'Municipalities that have asked to be onboarded.' },
+]
+const INSIGHTS_TABS: HubTab[] = [
+  { to: '/analytics', label: '311 Analytics', subtitle: 'Resident-request trends, aggregated by region — never by individual municipality.' },
+  { to: '/cost', label: 'Cost & Chargeback', subtitle: 'What each municipality costs to host, split state-borne vs town-borne.' },
+]
+const OPS_TABS: HubTab[] = [
+  { to: '/sla', label: 'Uptime & SLA', subtitle: 'Availability and incidents across the fleet.' },
+  { to: '/alerts', label: 'Alerts', subtitle: 'Open monitoring alerts across hosted municipalities.' },
+  { to: '/releases', label: 'Releases', subtitle: 'Published versions and fleet rollout.' },
+]
+const GOV_TABS: HubTab[] = [
+  { to: '/compliance', label: 'Compliance', subtitle: 'Security and policy posture across the fleet — infrastructure metadata, not resident data.' },
+  { to: '/audit', label: 'Audit Log', subtitle: 'Tamper-evident record of every state action.' },
+]
 
 export function App() {
   const [authed, setAuthed] = useState(!!getToken())
@@ -60,17 +79,30 @@ export function App() {
             <Shell onLogout={() => setAuthed(false)}>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
-                <Route path="/towns" element={<Towns />} />
                 <Route path="/towns/:id" element={<TownDetail />} />
-                <Route path="/map" element={<StateMap />} />
-                <Route path="/cost" element={<Cost />} />
-                <Route path="/sla" element={<Sla />} />
-                <Route path="/analytics" element={<Analytics />} />
-                <Route path="/compliance" element={<Compliance />} />
-                <Route path="/alerts" element={<Alerts />} />
-                <Route path="/requests" element={<Requests />} />
-                <Route path="/releases" element={<Releases />} />
-                <Route path="/audit" element={<Audit />} />
+
+                <Route element={<HubShell title="Municipalities" tabs={MUNI_TABS} />}>
+                  <Route path="/towns" element={<Towns />} />
+                  <Route path="/map" element={<StateMap />} />
+                  <Route path="/requests" element={<Requests />} />
+                </Route>
+
+                <Route element={<HubShell title="Insights" tabs={INSIGHTS_TABS} />}>
+                  <Route path="/analytics" element={<Analytics />} />
+                  <Route path="/cost" element={<Cost />} />
+                </Route>
+
+                <Route element={<HubShell title="Operations" tabs={OPS_TABS} />}>
+                  <Route path="/sla" element={<Sla />} />
+                  <Route path="/alerts" element={<Alerts />} />
+                  <Route path="/releases" element={<Releases />} />
+                </Route>
+
+                <Route element={<HubShell title="Governance" tabs={GOV_TABS} />}>
+                  <Route path="/compliance" element={<Compliance />} />
+                  <Route path="/audit" element={<Audit />} />
+                </Route>
+
                 <Route path="/settings" element={<Settings />} />
               </Routes>
             </Shell>

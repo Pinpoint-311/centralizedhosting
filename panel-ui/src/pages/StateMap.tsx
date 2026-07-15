@@ -5,7 +5,6 @@ import { MapPin, Building2, AlertTriangle } from 'lucide-react'
 import { api } from '../lib/api'
 import type { GeoFeatureCollection } from '../lib/types'
 import { Badge, Card, EmptyState, Spinner, StatusBadge, STATUS_COLOR } from '../components/ui'
-import { PageHeader } from '../components/Shell'
 import { getMapsApiKey, getMapsMapId } from '../lib/config'
 import { loadGoogleMaps, extendBoundsFromFeature } from '../lib/googlemaps'
 import { useToast } from '../components/Toast'
@@ -138,11 +137,6 @@ export function StateMap() {
 
   return (
     <div>
-      <PageHeader
-        title="State Map"
-        subtitle="Onboarded municipalities and their boundaries — public geography from OpenStreetMap, never resident data."
-      />
-
       {placed === 0 ? (
         <Card>
           <EmptyState

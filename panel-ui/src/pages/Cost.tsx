@@ -5,7 +5,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { api } from '../lib/api'
 import type { CostSummary } from '../lib/types'
 import { Card, Spinner, EmptyState } from '../components/ui'
-import { PageHeader } from '../components/Shell'
+import { PageToolbar } from '../components/Shell'
 import { useToast } from '../components/Toast'
 
 const money = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`
@@ -40,15 +40,11 @@ export function Cost() {
 
   return (
     <div>
-      <PageHeader
-        title="Cost & Chargeback"
-        subtitle="Estimated external-API spend, split by who provides each key. From telemetry — no resident data."
-        actions={
-          <button onClick={exportCsv} className="inline-flex items-center gap-2 px-4 py-2.5 text-sm rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
-            <Download className="w-4 h-4" /> Export CSV
-          </button>
-        }
-      />
+      <PageToolbar>
+        <button onClick={exportCsv} className="inline-flex items-center gap-2 px-4 py-2.5 text-sm rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
+          <Download className="w-4 h-4" /> Export CSV
+        </button>
+      </PageToolbar>
 
       {data.fleet_total === 0 ? (
         <Card>
