@@ -567,7 +567,7 @@ function KeysTab({ tenant, onChanged }: { tenant: Tenant; onChanged: () => void 
     <div className="space-y-4">
       <Card>
         <div className="flex items-center justify-between mb-1">
-          <h3 className="font-semibold text-white">Key responsibility matrix</h3>
+          <h3 className="font-semibold text-white">API keys</h3>
           {dirty && (
             <Button size="sm" onClick={saveAssignments} isLoading={saving} leftIcon={<Save className="w-4 h-4" />}>
               Save
@@ -575,12 +575,10 @@ function KeysTab({ tenant, onChanged }: { tenant: Tenant; onChanged: () => void 
           )}
         </div>
         <p className="text-sm text-white/50 mb-4">
-          Set once. <b>Town</b> keys are entered by the town in its own instance.{' '}
-          <b>State · shared</b> keys use one credential you enter once under{' '}
-          <Link to="/settings" className="text-indigo-300 hover:text-indigo-200">
-            State credentials
-          </Link>
-          . <b>State · per-town</b> keys take a distinct value per town, entered below.
+          Who provides each external service key for this town. It starts from your{' '}
+          <Link to="/settings" className="text-indigo-300 hover:text-indigo-200">program defaults</Link>
+          {' '}— change any you need. Keys the <b>State</b> provides are entered once in Settings; a
+          per-town key is entered just below.
         </p>
         <KeyMatrix
           catalog={catalog}
@@ -603,11 +601,11 @@ function KeysTab({ tenant, onChanged }: { tenant: Tenant; onChanged: () => void 
 
       {sharedServices.length > 0 && (
         <Card>
-          <h3 className="font-semibold text-white mb-1">Shared state credentials in use</h3>
+          <h3 className="font-semibold text-white mb-1">State-provided for this town</h3>
           <p className="text-sm text-white/50 mb-3">
-            These services plug into the shared state pool. Set their values once under{' '}
+            These use one shared state credential. Set their values once under{' '}
             <Link to="/settings" className="text-indigo-300 hover:text-indigo-200">
-              Settings → State credentials
+              Settings → API keys
             </Link>
             .
           </p>
