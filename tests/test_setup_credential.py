@@ -16,11 +16,14 @@ def test_setup_password_generated_and_revealable(client):
 
 
 def test_setup_password_injected_into_town_env(client):
-    """It must reach the town's env so the app's first-run screen accepts it."""
+    """It must reach the town's env AND be forwarded into the backend container
+    so the app's first-run bootstrap accepts it (not the disabled default)."""
     t = make_tenant(client, slug="envville", name="Envville")
     provision(client, t["id"])
     preview = client.get(f"/api/tenants/{t['id']}/stack-preview", headers=HEADERS).json()
     assert "INITIAL_ADMIN_PASSWORD" in preview["env"]
+    # The compose must forward it to the backend container's environment.
+    assert "INITIAL_ADMIN_PASSWORD" in preview["compose"]
 
 
 def test_setup_password_absent_before_provisioning(client):

@@ -55,6 +55,10 @@ services:
       MANAGED_MODE: "true"
       REQUIRE_KMS: "true"
       PROVISIONING_TOKEN: ${PROVISIONING_TOKEN}
+      # One-time setup password the state hands to the town admin (the panel
+      # generates it and surfaces it on the Provisioning tab). The app seeds the
+      # first admin from it and gates first-run bootstrap on it.
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       APP_VERSION: "{{ version }}"
       DOMAIN: ${DOMAIN}
       GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
