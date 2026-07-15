@@ -132,6 +132,33 @@ def provision_tenant(
     return provisioner.run_provision(db, tenant, actor)
 
 
+@router.get("/{tenant_id}/setup-credential")
+def setup_credential(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    actor: str = Depends(require_approver),
+):
+    """Reveal the town's one-time setup password (INITIAL_ADMIN_PASSWORD) so the
+    state can hand it to the town admin for first-run account creation. Sensitive
+    (approver-only) and audited on every reveal. The state never logs in with it.
+    """
+    tenant = _get_tenant(db, tenant_id)
+    password = provisioner.get_platform_secret(db, tenant.id, "INITIAL_ADMIN_PASSWORD")
+    if not password:
+        raise HTTPException(404, "No setup credential yet — provision the town first.")
+    audit.record(db, actor, "tenant.setup_credential_revealed", tenant_id)
+    db.commit()
+    return {
+        "setup_url": f"https://{tenant.external_host}/",
+        "initial_admin_password": password,
+        "note": (
+            "One-time setup password. Give it to the town admin to create their first "
+            "admin account at the app's setup screen, then have them rotate it. The "
+            "state does not use this to log in."
+        ),
+    }
+
+
 @router.get("/{tenant_id}/transparency")
 def transparency(
     tenant_id: str,
