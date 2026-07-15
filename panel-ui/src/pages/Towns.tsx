@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Building2, Plus, Search, ArrowRight, ArrowLeft, Check, Globe, Link2, Upload, X } from 'lucide-react'
+import { Building2, Plus, Search, ArrowRight, ArrowLeft, Check, Globe, Upload, X } from 'lucide-react'
 import { api } from '../lib/api'
 import { useSession } from '../lib/session'
 import type { BulkResultRow, KeyCatalog, Tenant } from '../lib/types'
@@ -12,14 +12,12 @@ import {
   EmptyState,
   Input,
   Modal,
-  SegmentToggle,
   Select,
   Spinner,
   StatusBadge,
   Textarea,
 } from '../components/ui'
 import { PageToolbar } from '../components/Shell'
-import { KeyMatrix, OWNER_META } from '../components/KeyMatrix'
 import { useToast } from '../components/Toast'
 
 const REGIONS = [
@@ -243,11 +241,10 @@ function AddTownWizard({ onClose, onCreated }: { onClose: () => void; onCreated:
   }
 
   const effectiveSlug = d.slugTouched ? d.slug : slugify(d.name)
-  const steps = ['Identity', 'Domain', 'Contact', 'API keys', 'Review']
+  const steps = ['Identity', 'Contact', 'Review']
 
   const canNext = () => {
     if (step === 0) return d.name.trim() && effectiveSlug
-    if (step === 1) return d.domainMode === 'subdomain' || d.custom_domain.trim()
     return true
   }
 
@@ -267,10 +264,8 @@ function AddTownWizard({ onClose, onCreated }: { onClose: () => void; onCreated:
         contact_phone: d.contact_phone || null,
         address: d.address || null,
         notes: d.notes || null,
-        key_assignments: d.key_assignments,
-      }
-      if (d.domainMode === 'custom' && d.custom_domain.trim()) {
-        body.custom_domain = d.custom_domain.trim().toLowerCase()
+        // New towns inherit the program-wide key defaults; adjust per-town later.
+        key_assignments: {},
       }
       await api.createTenant(body)
       toast.push(`${d.name} added — provision it next.`)
@@ -338,61 +333,8 @@ function AddTownWizard({ onClose, onCreated }: { onClose: () => void; onCreated:
         </div>
       )}
 
-      {/* Step 1: domain */}
+      {/* Step 1: contact */}
       {step === 1 && (
-        <div className="space-y-4">
-          <div className="flex justify-center">
-            <SegmentToggle
-              value={d.domainMode}
-              onChange={(v) => set('domainMode', v as Draft['domainMode'])}
-              options={[
-                { value: 'subdomain', label: 'Subdomain' },
-                { value: 'custom', label: 'Custom domain' },
-              ]}
-            />
-          </div>
-          {d.domainMode === 'subdomain' ? (
-            <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
-                Subdomain under the state domain
-              </label>
-              <div className="flex items-stretch rounded-xl overflow-hidden border border-white/10 bg-white/5">
-                <input
-                  className="flex-1 bg-transparent px-4 py-3 text-white outline-none"
-                  value={effectiveSlug}
-                  onChange={(e) => {
-                    set('slugTouched', true)
-                    set('slug', slugify(e.target.value))
-                  }}
-                />
-                <span className="flex items-center px-4 text-white/50 bg-white/5 border-l border-white/10">
-                  .{BASE_DOMAIN}
-                </span>
-              </div>
-              <p className="mt-2 text-sm text-white/50 flex items-center gap-1.5">
-                <Globe className="w-4 h-4" /> Served via wildcard <code className="text-white/70">*.{BASE_DOMAIN}</code> DNS + TLS — nothing to configure.
-              </p>
-            </div>
-          ) : (
-            <div>
-              <Input
-                label="Custom domain"
-                placeholder="311.springfield.gov"
-                value={d.custom_domain}
-                onChange={(e) => set('custom_domain', e.target.value)}
-                leftIcon={<Link2 className="w-4 h-4" />}
-              />
-              <p className="mt-2 text-sm text-amber-200/70">
-                The town must point a CNAME at the managed host; the panel requests an on-demand
-                TLS certificate automatically.
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Step 2: contact */}
-      {step === 2 && (
         <div className="space-y-4">
           <div className="grid sm:grid-cols-2 gap-4">
             <Input label="Primary contact" placeholder="Jane Doe" value={d.contact_name} onChange={(e) => set('contact_name', e.target.value)} />
@@ -405,60 +347,35 @@ function AddTownWizard({ onClose, onCreated }: { onClose: () => void; onCreated:
         </div>
       )}
 
-      {/* Step 3: key matrix */}
-      {step === 3 && (
-        <div>
-          <p className="text-sm text-white/60 mb-4">
-            Decide who provides each external API key. Set it once — the panel brokers
-            state-provided keys automatically at provision time; town-owned keys are entered by
-            the town in its own instance.
-          </p>
-          {catalog ? (
-            <KeyMatrix
-              catalog={catalog}
-              assignments={{ ...Object.fromEntries(catalog.assignable.map((s) => [s.id, s.default_owner])), ...d.key_assignments }}
-              onChange={(id, owner) => set('key_assignments', { ...d.key_assignments, [id]: owner })}
-            />
-          ) : (
-            <Spinner />
-          )}
-        </div>
-      )}
-
-      {/* Step 4: review */}
-      {step === 4 && catalog && (
+      {/* Step 2: review */}
+      {step === 2 && catalog && (
         <div className="space-y-4">
           <ReviewRow label="Name" value={d.name} />
-          <ReviewRow
-            label="Address (hostname)"
-            value={d.domainMode === 'custom' && d.custom_domain ? d.custom_domain : `${effectiveSlug}.${BASE_DOMAIN}`}
-          />
+          <ReviewRow label="Address (hostname)" value={`${effectiveSlug}.${BASE_DOMAIN}`} />
           <ReviewRow label="Region · Plan" value={`${d.region} · ${d.plan}`} />
+          {d.county && <ReviewRow label={REGION_LABEL} value={d.county} />}
           {d.contact_name && <ReviewRow label="Contact" value={`${d.contact_name}${d.contact_title ? `, ${d.contact_title}` : ''}`} />}
-          <div className="space-y-3">
-            {(['state_shared', 'state_per_town', 'town'] as const).map((mode) => {
-              const svcs = catalog.assignable.filter(
-                (s) => (d.key_assignments[s.id] || s.default_owner) === mode,
-              )
-              if (svcs.length === 0) return null
-              const meta = OWNER_META[mode]
-              return (
-                <div key={mode}>
-                  <div className="text-sm text-white/50 mb-2">{meta.label}</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {svcs.map((s) => (
-                      <Badge key={s.id} variant={mode === 'town' ? 'default' : 'info'}>
-                        {s.label}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
+
+          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10">
+            <div className="text-sm text-white/70 mb-2">API keys use your program defaults</div>
+            <div className="flex flex-wrap gap-1.5">
+              {catalog.assignable.map((s) => {
+                const isState = s.default_owner !== 'town'
+                return (
+                  <Badge key={s.id} variant={isState ? 'info' : 'default'}>
+                    {s.label}: {isState ? 'State' : 'Town'}
+                  </Badge>
+                )
+              })}
+            </div>
+            <p className="text-xs text-white/40 mt-2">
+              Change any of these on the town's <b>API keys</b> tab after it's created.
+            </p>
           </div>
+
           <p className="text-white/40 text-sm">
             Creating the record does not deploy anything yet — you'll trigger provisioning from the
-            town's page.
+            town's page. A custom domain (instead of the subdomain) can be set on its Domain tab.
           </p>
         </div>
       )}
