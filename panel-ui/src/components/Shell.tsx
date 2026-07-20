@@ -51,6 +51,7 @@ export function Shell({ children, onLogout }: { children: React.ReactNode; onLog
   }, [])
 
   function logout() {
+    api.logout().catch(() => {}) // clear the SSO session cookie (if any)
     clearToken()
     onLogout()
     navigate('/')

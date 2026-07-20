@@ -10,6 +10,7 @@ from orchestrator.api import (
     admin,
     analytics_api,
     audit_api,
+    auth_sso,
     fleet,
     gis,
     insights_api,
@@ -33,7 +34,7 @@ async def _lifespan(app: FastAPI):
 
     from orchestrator.config import settings
 
-    task = None
+    tasks: list = []
     if settings.alert_poll_seconds and settings.alert_poll_seconds > 0:
         async def _alert_loop():
             from orchestrator.db import SessionLocal
@@ -47,11 +48,31 @@ async def _lifespan(app: FastAPI):
                 except Exception:
                     pass  # never let the background loop crash the app
 
-        task = asyncio.create_task(_alert_loop())
+        tasks.append(asyncio.create_task(_alert_loop()))
+
+    if settings.telemetry_poll_seconds and settings.telemetry_poll_seconds > 0:
+        async def _telemetry_loop():
+            from orchestrator.db import SessionLocal
+            from orchestrator.api.fleet import poll_all_telemetry
+
+            while True:
+                await asyncio.sleep(settings.telemetry_poll_seconds)
+                try:
+                    # Poll in a worker thread so the blocking HTTP calls don't
+                    # stall the event loop.
+                    await asyncio.to_thread(_run_telemetry_poll, SessionLocal)
+                except Exception:
+                    pass  # never let the background loop crash the app
+
+        def _run_telemetry_poll(SessionLocal):
+            with SessionLocal() as db:
+                poll_all_telemetry(db)
+
+        tasks.append(asyncio.create_task(_telemetry_loop()))
 
     yield
 
-    if task:
+    for task in tasks:
         task.cancel()
 
 
@@ -74,6 +95,7 @@ def create_app() -> FastAPI:
     app.include_router(releases.router)
     app.include_router(fleet.router)
     app.include_router(gis.router)
+    app.include_router(auth_sso.router)
     app.include_router(audit_api.router)
     app.include_router(admin.router)
     app.include_router(insights_api.router)

@@ -31,6 +31,18 @@ class Settings(BaseSettings):
     roles_header: str = ""
     role_group_map: str = ""
 
+    # SSO / OIDC federation. Operators sign in via the host's IdP (configured at
+    # runtime in the panel and stored encrypted — see FederationConfig). These
+    # env values only govern the session cookie + redirect, not the IdP secret.
+    # PANEL_PUBLIC_URL is the browser-facing origin used to build the OIDC
+    # redirect_uri (e.g. https://central.pinpoint311.org); empty -> derived from
+    # the request. Session cookie is HttpOnly; set PANEL_COOKIE_INSECURE=true
+    # only for local http testing.
+    panel_public_url: str = ""
+    session_ttl_minutes: int = 480
+    session_cookie_name: str = "pp_session"
+    panel_cookie_insecure: bool = False
+
     # Panel-secret key management. "local" derives the encryption key from
     # PANEL_SECRET_KEY (dev/standalone). Government production should wrap a
     # generated data key with a FedRAMP/StateRAMP KMS — see key_provider.py and
@@ -79,6 +91,11 @@ class Settings(BaseSettings):
     alert_webhook_url: str = ""
     # Background alert-evaluation cadence (seconds); 0 disables the loop.
     alert_poll_seconds: int = 0
+    # Background telemetry-poll cadence (seconds): the panel automatically polls
+    # every active town's health/telemetry so status stays current without the
+    # manual "Poll telemetry" button. 0 disables (default, so dev/demo/tests
+    # don't overwrite seeded data); production sets e.g. 300 via env.
+    telemetry_poll_seconds: int = 0
 
     # Public self-service hosting-request intake. Off by default (adds an
     # unauthenticated endpoint); enable only behind rate-limiting/CAPTCHA.

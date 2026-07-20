@@ -59,6 +59,8 @@ export function Settings() {
       <div className="space-y-4">
         <Announcements />
 
+        {can('admin') && <SsoFederation />}
+
         <Card>
           <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
             <ShieldCheck className="w-5 h-5" /> Security &amp; compliance
@@ -299,6 +301,133 @@ function Announcements() {
             <button onClick={() => remove(a.id)} className="text-white/40 hover:text-red-300" aria-label="Delete announcement"><Trash2 className="w-4 h-4" /></button>
           </div>
         ))}
+      </div>
+    </Card>
+  )
+}
+
+// -------------------------------------------------- SSO / identity federation
+import { LogIn, Plus as PlusIcon, Trash2 as TrashIcon } from 'lucide-react'
+import type { FederationConfig, Role } from '../lib/types'
+
+const PANEL_ROLES: Role[] = ['viewer', 'operator', 'approver', 'admin']
+
+function SsoFederation() {
+  const toast = useToast()
+  const [cfg, setCfg] = useState<FederationConfig | null>(null)
+  const [secret, setSecret] = useState('')
+  const [rows, setRows] = useState<{ group: string; role: Role }[]>([])
+  const [busy, setBusy] = useState('')
+
+  function hydrate(c: FederationConfig) {
+    setCfg(c)
+    setRows(Object.entries(c.group_role_map || {}).map(([group, role]) => ({ group, role: role as Role })))
+  }
+  useEffect(() => {
+    api.getFederation().then(hydrate).catch((e) => toast.push((e as Error).message, 'error'))
+  }, [])
+
+  if (!cfg) return null
+  const set = (k: keyof FederationConfig, v: unknown) => setCfg({ ...cfg, [k]: v } as FederationConfig)
+
+  async function save() {
+    setBusy('save')
+    try {
+      const group_role_map: Record<string, string> = {}
+      rows.forEach((r) => { if (r.group.trim()) group_role_map[r.group.trim()] = r.role })
+      const body: Record<string, unknown> = {
+        enabled: cfg!.enabled,
+        provider: cfg!.provider,
+        issuer: cfg!.issuer || '',
+        client_id: cfg!.client_id || '',
+        groups_claim: cfg!.groups_claim || 'groups',
+        group_role_map,
+        default_role: cfg!.default_role,
+      }
+      if (secret) body.client_secret = secret
+      const out = await api.putFederation(body)
+      hydrate(out)
+      setSecret('')
+      toast.push('SSO federation saved')
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setBusy('')
+    }
+  }
+  async function test() {
+    setBusy('test')
+    try {
+      const r = await api.testFederation()
+      toast.push(`Reached IdP: ${r.issuer}`)
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  return (
+    <Card>
+      <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
+        <LogIn className="w-5 h-5" /> Single sign-on (SSO)
+        {cfg.enabled && cfg.client_secret_set && <Badge variant="success">configured</Badge>}
+      </h3>
+      <p className="text-sm text-white/50 mb-4">
+        Let operators sign in with your identity provider (Okta, Entra/Azure AD, Auth0, Login.gov —
+        any OpenID Connect issuer). The client secret is stored encrypted by the panel's secret
+        manager and never shown again.
+      </p>
+
+      <div className="space-y-4">
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Input label="Issuer URL" placeholder="https://your-org.okta.com" value={cfg.issuer || ''} onChange={(e) => set('issuer', e.target.value)} helperText="OIDC discovery base (.well-known/openid-configuration)." />
+          <Input label="Provider label" placeholder="okta" value={cfg.provider} onChange={(e) => set('provider', e.target.value)} />
+          <Input label="Client ID" value={cfg.client_id || ''} onChange={(e) => set('client_id', e.target.value)} />
+          <Input
+            label="Client secret"
+            type="password"
+            placeholder={cfg.client_secret_set ? '•••••••• (set — enter to replace)' : 'Enter client secret'}
+            value={secret}
+            onChange={(e) => setSecret(e.target.value)}
+          />
+          <Input label="Groups claim" value={cfg.groups_claim} onChange={(e) => set('groups_claim', e.target.value)} helperText="ID-token claim carrying the operator's groups." />
+          <Select
+            label="Default role (no group match)"
+            value={cfg.default_role}
+            onChange={(e) => set('default_role', e.target.value)}
+            options={PANEL_ROLES.map((r) => ({ value: r, label: r }))}
+          />
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-medium text-white/70">Group → role mapping</label>
+            <Button size="sm" variant="ghost" onClick={() => setRows([...rows, { group: '', role: 'viewer' }])} leftIcon={<PlusIcon className="w-4 h-4" />}>Add</Button>
+          </div>
+          <div className="space-y-2">
+            {rows.length === 0 && <p className="text-xs text-white/40">No mappings — everyone who signs in gets the default role above.</p>}
+            {rows.map((r, i) => (
+              <div key={i} className="flex gap-2 items-center">
+                <Input className="flex-1" placeholder="IdP group (e.g. pp311-admins)" value={r.group} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, group: e.target.value } : x))} />
+                <div className="w-40">
+                  <Select value={r.role} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, role: e.target.value as Role } : x))} options={PANEL_ROLES.map((x) => ({ value: x, label: x }))} />
+                </div>
+                <button onClick={() => setRows(rows.filter((_, j) => j !== i))} className="text-white/40 hover:text-red-300 shrink-0" aria-label="Remove mapping"><TrashIcon className="w-4 h-4" /></button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer">
+          <input type="checkbox" checked={cfg.enabled} onChange={(e) => set('enabled', e.target.checked)} className="accent-indigo-500 w-4 h-4" />
+          Enable SSO sign-in (shows "Sign in with SSO" on the login screen)
+        </label>
+
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={save} isLoading={busy === 'save'}>Save SSO settings</Button>
+          <Button variant="secondary" onClick={test} isLoading={busy === 'test'} disabled={!cfg.issuer}>Test discovery</Button>
+        </div>
       </div>
     </Card>
   )

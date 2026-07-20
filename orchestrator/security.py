@@ -3,7 +3,9 @@
 import hmac
 import json
 import secrets as pysecrets
+from datetime import datetime, timedelta, timezone
 
+import jwt
 from cryptography.fernet import Fernet
 from fastapi import Header, HTTPException, Request
 
@@ -42,9 +44,51 @@ def _role_group_map() -> dict[str, str]:
         return {}
 
 
+# ---------------------------------------------------------------- SSO session
+
+_SESSION_TYP = "panel_session"
+
+
+def mint_session(actor: str, role: str) -> str:
+    """A signed (HS256) session token for an SSO-authenticated operator, carried
+    in an HttpOnly cookie. Signed with PANEL_SECRET_KEY."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": actor[:150],
+        "role": role if role in ROLES else "viewer",
+        "typ": _SESSION_TYP,
+        "iat": now,
+        "exp": now + timedelta(minutes=max(1, settings.session_ttl_minutes)),
+    }
+    return jwt.encode(payload, settings.panel_secret_key, algorithm="HS256")
+
+
+def verify_session(token: str) -> dict | None:
+    """Validate a session cookie; return {actor, role} or None."""
+    try:
+        claims = jwt.decode(token, settings.panel_secret_key, algorithms=["HS256"])
+    except Exception:
+        return None
+    if claims.get("typ") != _SESSION_TYP:
+        return None
+    role = claims.get("role")
+    if role not in ROLES:
+        return None
+    return {"actor": claims.get("sub") or "sso-operator", "role": role}
+
+
+def _session_from_request(request: Request) -> dict | None:
+    token = request.cookies.get(settings.session_cookie_name)
+    return verify_session(token) if token else None
+
+
 def resolve_role(request: Request) -> str:
-    """Effective role for this request. Highest role among the operator's
-    mapped groups (from the trusted ROLES_HEADER), else DEFAULT_OPERATOR_ROLE."""
+    """Effective role for this request. An SSO session's role wins; otherwise
+    the highest role among the operator's mapped groups (from the trusted
+    ROLES_HEADER), else DEFAULT_OPERATOR_ROLE."""
+    session = _session_from_request(request)
+    if session:
+        return session["role"]
     mapping = _role_group_map()
     if settings.roles_header and mapping:
         raw = request.headers.get(settings.roles_header, "")
@@ -67,12 +111,16 @@ def require_role(minimum: str):
     Returns the operator identity string (used as the audit actor)."""
 
     def dependency(request: Request, x_panel_token: str = Header(default="")) -> str:
-        actor = _authenticate(request, x_panel_token)
-        role = resolve_role(request)
+        # 1) SSO session cookie (if present and valid) authenticates on its own.
+        session = _session_from_request(request)
+        if session:
+            actor, role = session["actor"], session["role"]
+        else:
+            # 2) Shared token + trusted OIDC-proxy headers (fail-closed).
+            actor = _authenticate(request, x_panel_token)
+            role = resolve_role(request)
         if _RANK[role] < _RANK[minimum]:
-            raise HTTPException(
-                403, f"Requires '{minimum}' role; you have '{role}'."
-            )
+            raise HTTPException(403, f"Requires '{minimum}' role; you have '{role}'.")
         return actor
 
     return dependency
@@ -83,6 +131,7 @@ def require_role(minimum: str):
 require_panel_token = require_role("viewer")
 require_operator = require_role("operator")
 require_approver = require_role("approver")
+require_admin = require_role("admin")
 
 
 # ------------------------------------------------------- secrets at-rest crypto

@@ -26,12 +26,10 @@ def _operational_only(payload: dict | None) -> dict | None:
     return {k: v for k, v in payload.items() if k not in ("request_stats",)}
 
 
-@router.post("/refresh")
-def refresh_telemetry(
-    db: Session = Depends(get_db),
-    actor: str = Depends(require_operator),
-):
-    """Poll every active town's A5 telemetry endpoint; store sanitized snapshots."""
+def poll_all_telemetry(db: Session, actor: str = "auto-poller") -> dict:
+    """Poll every active town's A5 telemetry endpoint; store sanitized snapshots
+    and re-evaluate alerts. Shared by the manual /refresh endpoint and the
+    background auto-poll loop so status stays current without a manual click."""
     tenants = db.execute(
         select(Tenant).where(Tenant.status == TenantStatus.ACTIVE)
     ).scalars().all()
@@ -67,6 +65,15 @@ def refresh_telemetry(
 
     new_alerts = len(insights.evaluate_alerts(db))
     return {"polled": polled, "reachable": reachable, "new_alerts": new_alerts}
+
+
+@router.post("/refresh")
+def refresh_telemetry(
+    db: Session = Depends(get_db),
+    actor: str = Depends(require_operator),
+):
+    """Poll every active town's A5 telemetry endpoint; store sanitized snapshots."""
+    return poll_all_telemetry(db, actor)
 
 
 @router.get("/summary")

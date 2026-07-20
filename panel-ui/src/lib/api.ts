@@ -6,6 +6,7 @@ import type {
   BulkResultRow,
   ComplianceSummary,
   CostSummary,
+  FederationConfig,
   FleetSummary,
   GeoFeatureCollection,
   KeyCatalog,
@@ -45,11 +46,16 @@ export class ApiError extends Error {
 }
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { 'X-Panel-Token': getToken() }
+  const headers: Record<string, string> = {}
+  // Token auth (operator token). SSO auth rides on the HttpOnly session cookie,
+  // so requests always include credentials.
+  const tok = getToken()
+  if (tok) headers['X-Panel-Token'] = tok
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   const resp = await fetch(path, {
     method,
     headers,
+    credentials: 'include',
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
   if (resp.status === 204) return undefined as T
@@ -132,6 +138,13 @@ export const api = {
 
   // identity / admin
   whoami: () => req<WhoAmI>('GET', '/api/whoami'),
+
+  // SSO / federation
+  ssoStatus: () => req<{ configured: boolean; provider: string; login_path: string }>('GET', '/api/auth/sso/status'),
+  logout: () => req<{ ok: boolean }>('POST', '/api/auth/logout'),
+  getFederation: () => req<FederationConfig>('GET', '/api/auth/federation'),
+  putFederation: (body: Record<string, unknown>) => req<FederationConfig>('PUT', '/api/auth/federation', body),
+  testFederation: () => req<{ ok: boolean; authorization_endpoint: string; issuer: string }>('POST', '/api/auth/federation/test'),
   reencryptSecrets: () => req<{ reencrypted: number; key_version: number }>('POST', '/api/maintenance/reencrypt-secrets'),
 
   // insights

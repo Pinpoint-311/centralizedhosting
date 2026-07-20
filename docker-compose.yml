@@ -27,6 +27,10 @@ services:
       BASE_DOMAIN: ${BASE_DOMAIN:-311.example.gov}
       TENANT_ROOT: /tenants
       APPLY_STACKS: ${APPLY_STACKS:-false}
+      # Automatically poll town health/telemetry and re-evaluate alerts so
+      # status stays current without the manual button (seconds; 0 disables).
+      TELEMETRY_POLL_SECONDS: ${TELEMETRY_POLL_SECONDS:-300}
+      ALERT_POLL_SECONDS: ${ALERT_POLL_SECONDS:-300}
     volumes:
       - ${TENANT_ROOT_HOST:-./tenants}:/tenants
       # Only needed with APPLY_STACKS=true — the panel is the ONE trusted
