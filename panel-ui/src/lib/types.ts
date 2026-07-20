@@ -150,8 +150,20 @@ export type Role = 'viewer' | 'operator' | 'approver' | 'admin'
 export interface WhoAmI {
   actor: string
   role: Role
+  auth_method?: 'sso' | 'token'
   key_provider: string
   require_signed_images: boolean
+}
+
+export interface FederationConfig {
+  enabled: boolean
+  provider: string
+  issuer: string | null
+  client_id: string | null
+  client_secret_set: boolean
+  groups_claim: string
+  group_role_map: Record<string, Role>
+  default_role: Role
 }
 
 export interface CostTownService {

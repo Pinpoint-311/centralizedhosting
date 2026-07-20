@@ -15,9 +15,12 @@ router = APIRouter(prefix="/api", tags=["admin"])
 def whoami(request: Request, actor: str = Depends(require_panel_token)):
     """The authenticated operator and effective role — the UI uses the role to
     show/hide privileged actions (defense-in-depth on top of server enforcement)."""
+    from orchestrator.security import _session_from_request
+
     return {
         "actor": actor,
         "role": resolve_role(request),
+        "auth_method": "sso" if _session_from_request(request) else "token",
         "key_provider": settings.key_provider,
         "require_signed_images": settings.require_signed_images,
     }

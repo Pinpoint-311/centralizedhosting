@@ -347,3 +347,30 @@ class AuditLog(Base):
     # Tamper-evident hash chain (each entry binds to the previous one).
     previous_hash: Mapped[str | None] = mapped_column(String(64), default=None)
     entry_hash: Mapped[str] = mapped_column(String(64), default="")
+
+
+class FederationConfig(Base):
+    """Singleton OIDC/SSO federation config for panel operator sign-in.
+
+    The host enters their IdP credentials once (issuer, client id/secret) and
+    maps IdP groups/roles to panel roles. The client secret is stored encrypted
+    at rest via the panel's secret manager (security.encrypt_value → key_provider,
+    local Fernet or KMS). Non-secret fields are stored plainly.
+    """
+
+    __tablename__ = "federation_config"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default="default")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    provider: Mapped[str] = mapped_column(String(40), default="oidc")  # label only
+    issuer: Mapped[str | None] = mapped_column(String(512), default=None)  # OIDC discovery base
+    client_id: Mapped[str | None] = mapped_column(String(255), default=None)
+    client_secret_encrypted: Mapped[str | None] = mapped_column(Text, default=None)
+    # Which ID-token claim carries the operator's groups/roles.
+    groups_claim: Mapped[str] = mapped_column(String(80), default="groups")
+    # {group_value: panel_role}; highest matching role wins.
+    group_role_map: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Role for an authenticated operator whose groups map to nothing.
+    default_role: Mapped[str] = mapped_column(String(20), default="viewer")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    updated_by: Mapped[str | None] = mapped_column(String(150), default=None)

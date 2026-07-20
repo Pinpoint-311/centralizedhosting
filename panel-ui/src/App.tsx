@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { MotionConfig } from 'framer-motion'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { getToken } from './lib/api'
+import { api } from './lib/api'
 import { SessionProvider } from './lib/session'
 import { ToastProvider } from './components/Toast'
 import { TokenGate } from './components/TokenGate'
@@ -42,7 +42,16 @@ const GOV_TABS: HubTab[] = [
 ]
 
 export function App() {
-  const [authed, setAuthed] = useState(!!getToken())
+  // 'checking' until we know whether an SSO session cookie or operator token
+  // authenticates us; then 'in' or 'out'.
+  const [auth, setAuth] = useState<'checking' | 'in' | 'out'>('checking')
+
+  useEffect(() => {
+    api
+      .whoami()
+      .then(() => setAuth('in'))
+      .catch(() => setAuth('out'))
+  }, [])
 
   // The public self-service request form is reachable without the panel token.
   const isPublicRequest = window.location.pathname === '/request'
@@ -54,11 +63,19 @@ export function App() {
     )
   }
 
-  if (!authed) {
+  if (auth === 'checking') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white/80 animate-spin" />
+      </div>
+    )
+  }
+
+  if (auth === 'out') {
     return (
       <MotionConfig reducedMotion="user">
         <ToastProvider>
-          <TokenGate onAuthed={() => setAuthed(true)} />
+          <TokenGate onAuthed={() => setAuth('in')} />
         </ToastProvider>
       </MotionConfig>
     )
@@ -76,7 +93,7 @@ export function App() {
               Skip to main content
             </a>
             <CommandPalette />
-            <Shell onLogout={() => setAuthed(false)}>
+            <Shell onLogout={() => setAuth('out')}>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/towns/:id" element={<TownDetail />} />
