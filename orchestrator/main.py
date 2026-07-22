@@ -11,6 +11,7 @@ from orchestrator.api import (
     analytics_api,
     audit_api,
     auth_sso,
+    backups as backups_api,
     fleet,
     gis,
     insights_api,
@@ -71,6 +72,25 @@ async def _lifespan(app: FastAPI):
 
         tasks.append(asyncio.create_task(_telemetry_loop()))
 
+    if settings.backups_enabled and settings.backup_poll_seconds and settings.backup_poll_seconds > 0:
+        async def _backup_loop():
+            from orchestrator.db import SessionLocal
+            from orchestrator import backups
+
+            def _run(SessionLocal):
+                with SessionLocal() as db:
+                    backups.backup_all(db)
+
+            while True:
+                await asyncio.sleep(settings.backup_poll_seconds)
+                try:
+                    # pg_basebackup is blocking + slow; keep it off the event loop.
+                    await asyncio.to_thread(_run, SessionLocal)
+                except Exception:
+                    pass  # never let the background loop crash the app
+
+        tasks.append(asyncio.create_task(_backup_loop()))
+
     yield
 
     for task in tasks:
@@ -98,6 +118,7 @@ def create_app() -> FastAPI:
     app.include_router(gis.router)
     app.include_router(auth_sso.router)
     app.include_router(offload.router)
+    app.include_router(backups_api.router)
     app.include_router(audit_api.router)
     app.include_router(admin.router)
     app.include_router(insights_api.router)

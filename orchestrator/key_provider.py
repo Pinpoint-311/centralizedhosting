@@ -3,21 +3,24 @@
 The panel encrypts brokered/shared credentials at rest with a Fernet data key
 (DEK). Where that DEK comes from is pluggable:
 
-- ``local``  — derive the DEK from PANEL_SECRET_KEY (dev / single-host).
-- ``kms``    — the DEK is generated once and stored **wrapped** by a
-               FedRAMP/StateRAMP KMS (GCP Cloud KMS, AWS KMS, Azure Key Vault
-               in the Gov cloud); it's unwrapped at startup. This is the
-               government-correct posture. The wrap/unwrap seam is
-               ``_kms_wrap``/`_kms_unwrap` below — drop the cloud SDK call in
-               there; everything else (envelope storage, rotation) already works.
+- ``local`` — derive the DEK from PANEL_SECRET_KEY (dev / single-host).
+- ``kms``   — the DEK is generated once as 32 random bytes and stored **wrapped**
+              by a FedRAMP/StateRAMP KMS/HSM (GCP Cloud KMS, AWS KMS, or a
+              software-held ``local-hsm`` KEK for CI/self-host). Only the wrapped
+              form is persisted (``WrappedKey``); it's unwrapped via the KMS on
+              first use and cached in memory. This is the government-correct
+              posture — see ``orchestrator/kms.py`` for the wrap/unwrap backends.
 
-Rotation: `PANEL_KEK_VERSION` selects the active key version. `rotate()`
-re-encrypts every stored secret from the old DEK to the new one, so a
-compromised or aged key can be retired without data loss.
+Rotation: ``PANEL_KEK_VERSION`` selects the active key version. Bumping it makes
+the next encrypt mint (and, for kms, wrap+store) a fresh DEK for that version;
+``reencrypt_all_secrets`` then re-encrypts every stored secret from the old DEK
+to the new one, so a compromised or aged key can be retired without data loss —
+while older ciphertext still decrypts under its original version.
 """
 
 import base64
 import hashlib
+import secrets as pysecrets
 
 from cryptography.fernet import Fernet
 
@@ -26,6 +29,12 @@ from orchestrator.config import settings
 
 def _fernet_from_material(material: bytes) -> Fernet:
     return Fernet(base64.urlsafe_b64encode(hashlib.sha256(material).digest()))
+
+
+def _fernet_from_dek(dek: bytes) -> Fernet:
+    """Wrap a raw 32-byte DEK as a Fernet key (no re-hashing — the KMS DEK is
+    already cryptographically random key material)."""
+    return Fernet(base64.urlsafe_b64encode(dek))
 
 
 def _local_dek(version: int) -> bytes:
@@ -37,20 +46,49 @@ def _local_dek(version: int) -> bytes:
     return f"{settings.panel_secret_key}:v{version}".encode()
 
 
-# --- KMS seam (government production) ----------------------------------------
-# Replace the bodies with real KMS calls. The DEK is a random 32 bytes; the KMS
-# stores only the *wrapped* form. We never persist the plaintext DEK.
+# --- KMS-wrapped DEK storage (government production) --------------------------
+# The plaintext DEK is generated once per version, wrapped by the KMS/HSM, and
+# only the wrapped form is persisted. It's unwrapped on first use and cached in
+# memory for the process lifetime.
 
-def _kms_wrap(dek: bytes) -> bytes:  # pragma: no cover - deployment-specific
-    raise NotImplementedError(
-        "KEY_PROVIDER=kms requires a KMS wrap implementation — see GOVERNMENT_PRODUCTION.md"
-    )
+_dek_cache: dict[int, bytes] = {}
 
 
-def _kms_unwrap(wrapped: bytes) -> bytes:  # pragma: no cover - deployment-specific
-    raise NotImplementedError(
-        "KEY_PROVIDER=kms requires a KMS unwrap implementation — see GOVERNMENT_PRODUCTION.md"
-    )
+def reset_cache() -> None:
+    """Drop the in-memory unwrapped-DEK cache (used after rotation/tests)."""
+    _dek_cache.clear()
+
+
+def _kms_dek(version: int) -> bytes:
+    cached = _dek_cache.get(version)
+    if cached is not None:
+        return cached
+
+    from orchestrator import kms
+    from orchestrator.db import SessionLocal
+    from orchestrator.models import WrappedKey
+
+    with SessionLocal() as db:
+        row = db.get(WrappedKey, version)
+        if row is None:
+            # First use of this version: mint a random DEK, wrap it with the KMS
+            # KEK, and persist only the wrapped form.
+            dek = pysecrets.token_bytes(32)
+            wrapped = kms.wrap(dek)
+            db.add(
+                WrappedKey(
+                    version=version,
+                    wrapped_dek=base64.b64encode(wrapped).decode(),
+                    backend=settings.kms_backend,
+                    kek_resource=settings.kms_key_resource or None,
+                )
+            )
+            db.commit()
+        else:
+            dek = kms.unwrap(base64.b64decode(row.wrapped_dek))
+
+    _dek_cache[version] = dek
+    return dek
 
 
 def data_key(version: int | None = None) -> Fernet:
@@ -59,12 +97,7 @@ def data_key(version: int | None = None) -> Fernet:
     if settings.key_provider == "local":
         return _fernet_from_material(_local_dek(version))
     if settings.key_provider == "kms":
-        # In a real deployment the wrapped DEK per version is loaded from the DB
-        # and unwrapped via KMS. Structure is in place; the cloud call is the
-        # only missing piece.
-        raise NotImplementedError(
-            "KEY_PROVIDER=kms: wire _kms_wrap/_kms_unwrap and wrapped-DEK storage"
-        )
+        return _fernet_from_dek(_kms_dek(version))
     raise ValueError(f"Unknown KEY_PROVIDER: {settings.key_provider}")
 
 

@@ -68,6 +68,11 @@ def record(
     )
     db.add(entry)
     db.flush()
+
+    # Ship off-host (WORM + SIEM), best-effort — never let it affect the action.
+    from orchestrator import audit_ship
+
+    audit_ship.ship_entry(entry)
     return entry
 
 

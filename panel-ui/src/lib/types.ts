@@ -9,6 +9,16 @@ export type TenantStatus =
   | 'migrated'
   | 'decommissioned'
 
+export interface BackupRecord {
+  id: string
+  kind: string
+  status: string
+  path: string | null
+  size_bytes: number
+  detail: string | null
+  created_at: string | null
+}
+
 export interface Tenant {
   id: string
   slug: string

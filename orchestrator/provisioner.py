@@ -239,6 +239,19 @@ def _step_verify_supply_chain(db: Session, tenant: Tenant, ctx: dict) -> tuple[s
             f"release {version} is not digest-pinned; REQUIRE_SIGNED_IMAGES refuses "
             "mutable tags. Publish the release with backend_digest/frontend_digest."
         )
+
+    if settings.cosign_verify:
+        from orchestrator import supply_chain
+
+        refs = [
+            stack._image_ref(settings.backend_image, version, rel.backend_digest),
+            stack._image_ref(settings.frontend_image, version, rel.frontend_digest),
+        ]
+        ok, details = supply_chain.verify_refs(refs)
+        if not ok:
+            raise RuntimeError("cosign signature verification failed — " + "; ".join(details))
+        return DONE, "images digest-pinned + cosign-verified (" + "; ".join(details) + ")"
+
     return DONE, f"images digest-pinned (backend {rel.backend_digest[:19]}…)"
 
 

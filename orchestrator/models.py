@@ -351,6 +351,44 @@ class AuditLog(Base):
     entry_hash: Mapped[str] = mapped_column(String(64), default="")
 
 
+class WrappedKey(Base):
+    """Envelope-encryption key material for KEY_PROVIDER=kms.
+
+    Holds the panel data-encryption key (DEK) for a given key version in
+    KMS-wrapped form only — the plaintext DEK is never persisted. Unwrapping
+    requires the KMS/HSM KEK, so destroying that KEK renders every wrapped DEK
+    (and thus every secret encrypted under it) unrecoverable (crypto-shred).
+    """
+
+    __tablename__ = "wrapped_keys"
+
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    wrapped_dek: Mapped[str] = mapped_column(Text)  # base64 of the wrapped DEK
+    backend: Mapped[str] = mapped_column(String(32))
+    kek_resource: Mapped[str | None] = mapped_column(String(512), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class BackupRecord(Base):
+    """A point-in-time backup artifact for a town's database (base snapshot).
+
+    Continuous WAL archiving in the town stack fills the gaps between base
+    snapshots to give true PITR; this table is the panel's catalog of the base
+    snapshots it has taken and their retention state. Never holds resident data
+    — only the artifact's location, size, and status metadata."""
+
+    __tablename__ = "backup_records"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16), default="base")  # base|wal
+    status: Mapped[str] = mapped_column(String(16), default="planned")  # planned|completed|failed
+    path: Mapped[str | None] = mapped_column(Text, default=None)
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    detail: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
 class FederationConfig(Base):
     """Singleton OIDC/SSO federation config for panel operator sign-in.
 
