@@ -1050,7 +1050,8 @@ function BackupsCard({ tenant }: { tenant: Tenant }) {
   const toast = useToast()
   const { can } = useSession()
   const [rows, setRows] = useState<BackupRecord[]>([])
-  const [pitr, setPitr] = useState(false)
+  const [enabled, setEnabled] = useState(false)
+  const [s3, setS3] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
 
@@ -1058,7 +1059,8 @@ function BackupsCard({ tenant }: { tenant: Tenant }) {
     try {
       const r = await api.listBackups(tenant.id)
       setRows(r.backups)
-      setPitr(r.pitr_enabled)
+      setEnabled(r.backups_enabled)
+      setS3(r.s3_configured)
     } catch (e) {
       toast.push((e as Error).message, 'error')
     } finally {
@@ -1073,7 +1075,7 @@ function BackupsCard({ tenant }: { tenant: Tenant }) {
     setBusy(true)
     try {
       const rec = await api.takeBackup(tenant.id)
-      toast.push(rec.status === 'completed' ? 'Base backup taken' : 'Base backup recorded (planned)')
+      toast.push(rec.status === 'completed' ? 'Backup uploaded' : 'Backup recorded (planned)')
       await load()
     } catch (e) {
       toast.push((e as Error).message, 'error')
@@ -1093,18 +1095,19 @@ function BackupsCard({ tenant }: { tenant: Tenant }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
-            <DatabaseBackup className="w-5 h-5" /> Backups (PITR)
-            {pitr ? <Badge variant="success">WAL archiving on</Badge> : <Badge>base snapshots only</Badge>}
+            <DatabaseBackup className="w-5 h-5" /> Backups
+            {enabled ? <Badge variant="success">scheduled</Badge> : <Badge>on demand</Badge>}
+            {s3 ? <Badge variant="success">S3 configured</Badge> : <Badge variant="warning">S3 not set</Badge>}
           </h3>
           <p className="text-sm text-white/50 max-w-2xl">
-            Point-in-time recovery: when enabled the town's Postgres continuously archives WAL, and
-            the panel takes periodic base snapshots (pruned to the retention window). Take one now, or
-            rely on the scheduled cadence.
+            Encrypted database backups — same method as the app: <code className="text-white/70">pg_dump</code>{' '}
+            → GPG (AES-256) → S3, pruned to the retention window. Take one now, or rely on the
+            scheduled cadence. Without S3 configured a backup is recorded as <b>planned</b>.
           </p>
         </div>
         {can('operator') && (
           <Button variant="secondary" onClick={take} isLoading={busy} leftIcon={<DatabaseBackup className="w-4 h-4" />}>
-            Take base backup
+            Back up now
           </Button>
         )}
       </div>

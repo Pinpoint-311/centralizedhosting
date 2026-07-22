@@ -43,26 +43,21 @@ class Settings(BaseSettings):
     session_cookie_name: str = "pp_session"
     panel_cookie_insecure: bool = False
 
-    # Panel-secret key management. "local" derives the encryption key from
-    # PANEL_SECRET_KEY (dev/standalone). Government production should wrap a
-    # generated data key with a FedRAMP/StateRAMP KMS — see key_provider.py and
-    # GOVERNMENT_PRODUCTION.md. PANEL_KEK_VERSION supports rotation.
-    key_provider: str = "local"
-    panel_kek_version: int = 1
-
-    # Cloud KMS / HSM envelope encryption (used when KEY_PROVIDER=kms). The panel
-    # data key (DEK) is generated once, wrapped by a KMS/HSM key-encryption key
-    # (KEK), and only the *wrapped* DEK is persisted (WrappedKey table) — the
-    # plaintext DEK never touches disk. KMS_BACKEND selects the wrapping backend:
-    #   "local-hsm" — KEK held in KMS_KEK_MATERIAL (dev/CI/self-host; still real
-    #                 envelope crypto, but the KEK is software-held not in an HSM);
-    #   "gcp"       — Google Cloud KMS/HSM (needs google-cloud-kms);
-    #   "aws"       — AWS KMS/CloudHSM (needs boto3).
-    # KMS_KEY_RESOURCE is the cloud KEK name (GCP resource path / AWS key ARN|id).
-    # Destroying that KEK crypto-shreds every secret wrapped under it.
-    kms_backend: str = "local-hsm"
-    kms_key_resource: str = ""
-    kms_kek_material: str = ""
+    # Secrets at rest are envelope-encrypted, uniform with the Pinpoint 311 app
+    # (orchestrator/encryption.py + pii_crypto.py): an AES-256-GCM data key
+    # wraps each value and is itself wrapped by the configured cloud KMS. Like
+    # the app, KMS is configured via environment variables read at runtime (NOT
+    # Settings fields), so the two systems are set up identically:
+    #   KMS_PROVIDER = google (default) | azure | aws
+    #   REQUIRE_KMS  = 1|true|yes|on  → fail closed (no local-key fallback)
+    #   Google: GOOGLE_CLOUD_PROJECT, KMS_LOCATION, KMS_KEY_RING, KMS_KEY_ID
+    #           (+ GCP_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS)
+    #   AWS:    AWS_KMS_KEY_ID, AWS_REGION (+ AWS_ACCESS_KEY_ID/SECRET/…)
+    #   Azure:  AZURE_KEYVAULT_URL, AZURE_KEYVAULT_KEY, AZURE_TENANT_ID,
+    #           AZURE_KEYVAULT_CLIENT_ID, AZURE_KEYVAULT_CLIENT_SECRET
+    # With no cloud KMS configured, the DEK is wrapped by a PANEL_SECRET_KEY-
+    # derived key (dev/self-host). Rotate by rotating the cloud key and running
+    # POST /api/maintenance/reencrypt-secrets.
 
     # Supply chain. When true, provisioning refuses to deploy a release that
     # isn't pinned to an immutable digest (image@sha256:…) — the government
@@ -96,12 +91,14 @@ class Settings(BaseSettings):
     cert_expiry_warn_days: int = 21
     ssl_check_timeout_seconds: float = 5.0
 
-    # Point-in-time-recovery backups. When enabled, the town stack turns on
-    # continuous WAL archiving (PITR), and the panel takes periodic base
-    # snapshots and prunes to the retention window. BACKUP_POLL_SECONDS drives
-    # the background base-backup cadence (0 disables the loop).
+    # Town database backups — same method + env vars as the app (pg_dump -Fc |
+    # gpg AES256 → S3). When enabled, the panel backs up every active town on the
+    # BACKUP_POLL_SECONDS cadence and prunes to the retention window. S3 + the
+    # encryption key are configured with the app's BACKUP_* env vars (read at
+    # runtime in orchestrator/backups.py): BACKUP_S3_BUCKET, BACKUP_S3_ACCESS_KEY,
+    # BACKUP_S3_SECRET_KEY, BACKUP_ENCRYPTION_KEY, BACKUP_S3_ENDPOINT,
+    # BACKUP_S3_REGION, BACKUP_PREFIX, BACKUP_EXTENSION.
     backups_enabled: bool = False
-    backup_root: Path = Path("./backups")
     backup_poll_seconds: int = 0
     backup_retention_days: int = 14
 
@@ -112,6 +109,10 @@ class Settings(BaseSettings):
     waf_enabled: bool = False
     rate_limit_rps: int = 20
     rate_limit_burst: int = 40
+
+    # Panel API rate limiting (SlowAPI, per-client) — uniform with the app's
+    # in-app limiter. Per-minute ceiling per remote address.
+    rate_limit_rpm: int = 500
 
     # Fleet identity
     base_domain: str = "311.example.gov"

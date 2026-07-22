@@ -38,7 +38,6 @@ def _hardening_context() -> dict:
     """Edge/DB hardening flags shared by the compose + Caddy templates. All
     default off so the rendered output is unchanged unless explicitly enabled."""
     return {
-        "pitr": settings.backups_enabled,
         "waf_enabled": settings.waf_enabled,
         "rate_limit_rps": settings.rate_limit_rps,
         "rate_limit_burst": settings.rate_limit_burst,

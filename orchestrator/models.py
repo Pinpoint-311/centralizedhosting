@@ -351,41 +351,36 @@ class AuditLog(Base):
     entry_hash: Mapped[str] = mapped_column(String(64), default="")
 
 
-class WrappedKey(Base):
-    """Envelope-encryption key material for KEY_PROVIDER=kms.
-
-    Holds the panel data-encryption key (DEK) for a given key version in
-    KMS-wrapped form only — the plaintext DEK is never persisted. Unwrapping
-    requires the KMS/HSM KEK, so destroying that KEK renders every wrapped DEK
-    (and thus every secret encrypted under it) unrecoverable (crypto-shred).
-    """
-
-    __tablename__ = "wrapped_keys"
-
-    version: Mapped[int] = mapped_column(Integer, primary_key=True)
-    wrapped_dek: Mapped[str] = mapped_column(Text)  # base64 of the wrapped DEK
-    backend: Mapped[str] = mapped_column(String(32))
-    kek_resource: Mapped[str | None] = mapped_column(String(512), default=None)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-
-
 class BackupRecord(Base):
-    """A point-in-time backup artifact for a town's database (base snapshot).
-
-    Continuous WAL archiving in the town stack fills the gaps between base
-    snapshots to give true PITR; this table is the panel's catalog of the base
-    snapshots it has taken and their retention state. Never holds resident data
-    — only the artifact's location, size, and status metadata."""
+    """Catalog of a town database backup (encrypted pg_dump → S3), uniform with
+    the app's backup_service. Holds only the artifact's location, size, and
+    status metadata — never resident data."""
 
     __tablename__ = "backup_records"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
-    kind: Mapped[str] = mapped_column(String(16), default="base")  # base|wal
+    kind: Mapped[str] = mapped_column(String(16), default="dump")  # dump
     status: Mapped[str] = mapped_column(String(16), default="planned")  # planned|completed|failed
     path: Mapped[str | None] = mapped_column(Text, default=None)
     size_bytes: Mapped[int] = mapped_column(Integer, default=0)
     detail: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+class AuditAnchor(Base):
+    """Periodic tamper-anchor of the audit hash chain — uniform with the app.
+
+    Records the chain head (last entry_hash) + entry count at a point in time.
+    The same head is also emitted to stdout as ``[AUDIT ANCHOR] head=… count=…``
+    so external log aggregation captures it off-host, matching the app's daily
+    anchor task."""
+
+    __tablename__ = "audit_anchors"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    head: Mapped[str] = mapped_column(String(64))
+    count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
@@ -394,8 +389,8 @@ class FederationConfig(Base):
 
     The host enters their IdP credentials once (issuer, client id/secret) and
     maps IdP groups/roles to panel roles. The client secret is stored encrypted
-    at rest via the panel's secret manager (security.encrypt_value → key_provider,
-    local Fernet or KMS). Non-secret fields are stored plainly.
+    at rest via the panel's secret manager (security.encrypt_value → envelope
+    encryption, KMS-wrapped or local). Non-secret fields are stored plainly.
     """
 
     __tablename__ = "federation_config"

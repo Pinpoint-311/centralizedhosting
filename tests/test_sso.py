@@ -76,3 +76,46 @@ def test_invalid_role_in_map_rejected(client):
     body = {"enabled": False, "issuer": "https://idp", "client_id": "c",
             "group_role_map": {"g": "superuser"}, "default_role": "viewer"}
     assert client.put("/api/auth/federation", json=body, headers=HEADERS).status_code == 422
+
+
+# ---- Uniform SSO setup: the app's IDENTITY_PROVIDER env catalog ------------
+
+def test_env_provider_catalog_configures_sso(client, monkeypatch):
+    """SSO can be set up exactly like the app — via IDENTITY_PROVIDER + the
+    provider's env credentials — with no DB config."""
+    monkeypatch.setenv("IDENTITY_PROVIDER", "okta")
+    monkeypatch.setenv("OKTA_ISSUER", "https://example.okta.com")
+    monkeypatch.setenv("OKTA_CLIENT_ID", "cid")
+    monkeypatch.setenv("OKTA_CLIENT_SECRET", "sec")
+    status = client.get("/api/auth/sso/status").json()
+    assert status["configured"] is True
+    assert status["provider"] == "okta"
+
+
+def test_env_provider_issuer_derivation_matches_app(monkeypatch):
+    from orchestrator import oidc
+
+    monkeypatch.setenv("IDENTITY_PROVIDER", "auth0")
+    monkeypatch.setenv("AUTH0_DOMAIN", "acme.us.auth0.com")
+    monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
+    monkeypatch.setenv("AUTH0_CLIENT_SECRET", "sec")
+    cfg = oidc.resolve_identity_config()
+    assert cfg.provider == "auth0" and cfg.issuer == "https://acme.us.auth0.com"
+
+    monkeypatch.setenv("IDENTITY_PROVIDER", "entra")
+    monkeypatch.setenv("ENTRA_TENANT_ID", "tid")
+    monkeypatch.setenv("ENTRA_CLIENT_ID", "cid")
+    monkeypatch.setenv("ENTRA_CLIENT_SECRET", "sec")
+    cfg = oidc.resolve_identity_config()
+    assert cfg.issuer == "https://login.microsoftonline.com/tid/v2.0"
+
+
+def test_env_provider_incomplete_is_unconfigured(monkeypatch):
+    from orchestrator import oidc
+
+    monkeypatch.setenv("IDENTITY_PROVIDER", "oidc")
+    monkeypatch.setenv("OIDC_ISSUER", "https://idp.example.gov")
+    # client id/secret missing -> not configured
+    monkeypatch.delenv("OIDC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("OIDC_CLIENT_SECRET", raising=False)
+    assert oidc.resolve_identity_config() is None

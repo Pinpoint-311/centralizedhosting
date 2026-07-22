@@ -52,9 +52,9 @@ def _frontend_base(request: Request) -> str:
 def sso_status(db: Session = Depends(get_db)):
     """PUBLIC — whether SSO is configured, so the login screen can show the
     'Sign in with SSO' button. No secrets."""
-    cfg = oidc.get_config(db)
+    cfg = oidc.effective_config(db)
     return {
-        "configured": oidc.is_configured(db),
+        "configured": cfg is not None,
         "provider": (cfg.provider if cfg else "oidc"),
         "login_path": "/api/auth/sso/login",
     }
@@ -62,8 +62,8 @@ def sso_status(db: Session = Depends(get_db)):
 
 @router.get("/sso/login")
 def sso_login(request: Request, db: Session = Depends(get_db)):
-    cfg = oidc.get_config(db)
-    if not oidc.is_configured(db):
+    cfg = oidc.effective_config(db)
+    if not cfg:
         raise HTTPException(503, "SSO is not configured")
     try:
         meta = oidc.discover(cfg.issuer)
@@ -89,8 +89,8 @@ def sso_callback(request: Request, db: Session = Depends(get_db),
     ctx = _pending.pop(state, None)
     if not ctx or ctx["exp"] < time.time():
         return RedirectResponse(f"{front}/?sso_error=expired_state", status_code=302)
-    cfg = oidc.get_config(db)
-    if not oidc.is_configured(db):
+    cfg = oidc.effective_config(db)
+    if not cfg:
         return RedirectResponse(f"{front}/?sso_error=not_configured", status_code=302)
     try:
         meta = oidc.discover(cfg.issuer)
@@ -214,4 +214,10 @@ def sidecar_config(db: Session = Depends(get_db), _: str = Depends(require_admin
     it's referenced as an env var injected from the secret manager."""
     from orchestrator import sidecar
 
-    return sidecar.render_config(oidc.get_config(db))
+    # Reflect entered credentials even before SSO is toggled on (you generate the
+    # sidecar config first, then enable). Prefer the DB config when present, else
+    # the env provider catalog.
+    cfg = oidc.get_config(db)
+    eff = (oidc._from_db(cfg) if (cfg and cfg.issuer and cfg.client_id)
+           else oidc.resolve_identity_config())
+    return sidecar.render_config(eff)

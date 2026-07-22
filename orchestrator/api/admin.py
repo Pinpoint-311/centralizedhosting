@@ -17,11 +17,16 @@ def whoami(request: Request, actor: str = Depends(require_panel_token)):
     show/hide privileged actions (defense-in-depth on top of server enforcement)."""
     from orchestrator.security import _session_from_request
 
+    from orchestrator.encryption import _kms_provider, active_backend
+
     return {
         "actor": actor,
         "role": resolve_role(request),
         "auth_method": "sso" if _session_from_request(request) else "token",
-        "key_provider": settings.key_provider,
+        # Uniform with the app: which KMS is selected and which backend actually
+        # wraps the data key ('google'|'azure'|'aws'|'local').
+        "kms_provider": _kms_provider(),
+        "kms_backend": active_backend(),
         "require_signed_images": settings.require_signed_images,
     }
 
@@ -32,10 +37,13 @@ def reencrypt_secrets(
     db: Session = Depends(get_db),
     actor: str = Depends(require_approver),
 ):
-    """Re-encrypt all stored secrets with the active key version — the second
-    half of a key rotation (after bumping PANEL_KEK_VERSION). Admin/approver only."""
+    """Re-encrypt all stored secrets under the current key — run after rotating
+    the KMS key or switching provider. Admin/approver only."""
+    from orchestrator.encryption import active_backend
+
     count = provisioner.reencrypt_all_secrets(db)
+    backend = active_backend()
     audit.record(db, actor, "maintenance.secrets_reencrypted", None,
-                 count=count, key_version=settings.panel_kek_version)
+                 count=count, kms_backend=backend)
     db.commit()
-    return {"reencrypted": count, "key_version": settings.panel_kek_version}
+    return {"reencrypted": count, "kms_backend": backend}

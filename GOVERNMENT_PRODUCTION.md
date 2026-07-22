@@ -44,23 +44,37 @@ same pattern the app already uses for resident PII), not a static env var:
 - **Also:** enable Postgres TDE / encrypted volumes, restrict DB network access
   to the panel only, rotate `PANEL_SECRET_KEY` with re-encryption support.
 
-Ciphertext is now **key-version tagged** (`v<n>:…`) and the panel supports
-**rotation**: bump `PANEL_KEK_VERSION`, then `POST /api/maintenance/reencrypt-secrets`
-(or Settings → "Re-encrypt secrets") rewrites every stored secret under the new
-key while still decrypting the old ones.
+**Secret encryption is now identical to the Pinpoint 311 app** — the panel
+ports the app's crypto modules (`orchestrator/encryption.py`,
+`orchestrator/pii_crypto.py`, `orchestrator/aws_kms.py`,
+`orchestrator/azure_keyvault.py`) so both systems are set up and operated the
+same way. A random 32-byte AES-256-GCM data key (DEK) encrypts each value; the
+DEK is wrapped by the configured cloud KMS and only the wrapped DEK is stored
+inside the self-describing `pii2:` token (the plaintext DEK never touches disk).
+Rotate by rotating the cloud key (or switching provider) and running
+`POST /api/maintenance/reencrypt-secrets` (Settings → "Re-encrypt secrets"),
+which re-wraps every secret under a fresh DEK; the panel's earlier `v<n>:`
+Fernet values remain readable.
 
-**`KEY_PROVIDER=kms` is now implemented** (`orchestrator/key_provider.py` +
-`orchestrator/kms.py`): a random 32-byte data key (DEK) is generated once,
-**wrapped by a KMS/HSM key-encryption key (KEK)**, and only the wrapped DEK is
-persisted (`wrapped_keys` table) — the plaintext DEK never touches disk.
-Backends (`KMS_BACKEND`): `gcp` (Cloud KMS/HSM), `aws` (KMS/CloudHSM), and
-`local-hsm` (a software-held KEK from `KMS_KEK_MATERIAL`, for CI/self-host —
-still real envelope crypto). Destroying the KEK in the KMS crypto-shreds every
-secret wrapped under it. Cloud SDKs are optional extras (`pip install
-'.[kms-gcp]'` / `'.[kms-aws]'`).
+**Set it up exactly like the app**, with the same environment variables:
 
-Status: ✅ **at-rest encryption + versioned rotation + KMS/HSM envelope
-encryption**; ⚠️ **provision the cloud KEK + credentials for your environment.**
+| | env vars |
+|---|---|
+| Selector | `KMS_PROVIDER` = `google` (default) \| `azure` \| `aws`; `REQUIRE_KMS` = fail-closed |
+| Google Cloud KMS/HSM | `GOOGLE_CLOUD_PROJECT`, `KMS_LOCATION`, `KMS_KEY_RING`, `KMS_KEY_ID` (+ `GCP_SERVICE_ACCOUNT_JSON` / `GOOGLE_APPLICATION_CREDENTIALS`) |
+| AWS KMS/CloudHSM | `AWS_KMS_KEY_ID`, `AWS_REGION` (+ `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`) |
+| Azure Key Vault | `AZURE_KEYVAULT_URL`, `AZURE_KEYVAULT_KEY`, `AZURE_TENANT_ID`, `AZURE_KEYVAULT_CLIENT_ID`, `AZURE_KEYVAULT_CLIENT_SECRET` |
+
+With no cloud KMS configured the DEK is wrapped by a `PANEL_SECRET_KEY`-derived
+key (dev/self-host). `REQUIRE_KMS=true` makes wrapping fail closed rather than
+downgrade. `active_backend()` (surfaced on `/api/whoami` and Settings) reports
+which manager is actually wrapping the key (`google`/`azure`/`aws`/`local`).
+Cloud SDKs are optional extras (`pip install '.[kms-gcp]'` / `'.[kms-aws]'`;
+Azure uses httpx).
+
+Status: ✅ **at-rest envelope encryption identical to the app (Google/Azure/AWS
+KMS + `REQUIRE_KMS`), rotation, and legacy read-back**; ⚠️ **provision the cloud
+KEK + credentials for your environment.**
 
 ---
 
@@ -125,20 +139,29 @@ constant-time compared, fail-closed. On top of that there is now **RBAC**:
 - **Operator identity** for the audit trail comes from `OPERATOR_HEADER`
   (e.g. `X-Forwarded-User`) — the real user, not a generic label.
 
-The **OIDC/SSO reverse proxy with MFA is now shipped as an opt-in sidecar.**
-`docker compose --profile sso up -d` brings up `oauth2-proxy` in front of the
-panel; it authenticates every request against the host IdP (Login.gov,
-Okta-for-Gov, Entra Gov — **MFA enforced there**) and injects
-`X-Forwarded-User` / `X-Forwarded-Groups`, which the panel already maps to RBAC
-roles. The proxy config is **generated from the panel's own federation
-settings** (`GET /api/auth/sidecar-config`, `orchestrator/sidecar.py`) so the
-two can't drift; the client secret is injected from the secret manager as an
-env var and is never rendered. `allowed_groups` restricts sign-in to the groups
-the panel recognizes.
+**Operator SSO is set up the same way as the app.** The panel uses the app's
+provider catalog — `IDENTITY_PROVIDER` = `auth0` | `entra` | `okta` | `oidc` —
+with the identical credential env vars (`AUTH0_DOMAIN`/`AUTH0_CLIENT_ID`/
+`AUTH0_CLIENT_SECRET`, `ENTRA_TENANT_ID`/`ENTRA_CLIENT_ID`/`ENTRA_CLIENT_SECRET`/
+`ENTRA_AUTHORITY`, `OKTA_ISSUER`/`OKTA_CLIENT_ID`/`OKTA_CLIENT_SECRET`,
+`OIDC_ISSUER`/`OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET`) and the same issuer
+derivation and RS256/JWKS ID-token verification (`orchestrator/oidc.py`).
+Admins can alternatively enter the same fields in the panel UI
+(`FederationConfig`, client secret stored envelope-encrypted). The panel keeps
+its **HttpOnly-cookie session + PKCE** — a deliberate hardening over the app's
+localStorage-bearer transport, since the panel is an admin control plane where
+an XSS-stealable token has a larger blast radius; the *configuration* is
+identical, the session transport is stricter.
 
-Status: ✅ **fail-closed token + RBAC + operator-identity capture + oauth2-proxy
-SSO/MFA sidecar (config generated from federation)**; ⚠️ **point it at your
-StateRAMP/FedRAMP IdP and require MFA in the IdP policy.**
+An optional **oauth2-proxy MFA sidecar** (`docker compose --profile sso up -d`)
+can additionally front the panel, injecting `X-Forwarded-User`/`X-Forwarded-Groups`
+into the same RBAC; its config is generated from the federation settings
+(`GET /api/auth/sidecar-config`).
+
+Status: ✅ **fail-closed token + RBAC + operator-identity capture + app-uniform
+OIDC provider catalog (cookie+PKCE session) + optional oauth2-proxy MFA
+sidecar**; ⚠️ **point it at your StateRAMP/FedRAMP IdP and require MFA in the IdP
+policy.**
 
 ---
 
@@ -153,16 +176,20 @@ The trail is now **hash-chained** (each entry binds to the previous one's hash);
 `GET /api/audit/verify` (Settings → "Verify audit chain") recomputes it and
 pinpoints any insertion, edit, or deletion.
 
-**Off-host shipping is now built in** (`orchestrator/audit_ship.py`). Every entry
-is, best-effort: appended to an **append-only WORM journal** (`AUDIT_WORM_PATH`,
-NDJSON, carrying the hash chain so it's verifiable off-host — point it at an S3
-Object-Lock / WORM mount) and POSTed to a **SIEM** (`AUDIT_SIEM_URL`, ECS-shaped
-JSON, bearer-authed via `AUDIT_SIEM_TOKEN`). Shipping never blocks or fails an
-operator action; the on-host chain stays the integrity source of truth.
+**Off-host anchoring is uniform with the app.** Like the app's daily anchor, the
+panel records the chain head + entry count into an append-only `audit_anchors`
+table and emits `[AUDIT ANCHOR] head=… count=…` to stdout
+(`orchestrator/audit.py`, `POST /api/audit/anchor`, background loop), so the head
+lives outside the mutable DB for external log aggregation to capture. Error
+monitoring uses the same `SENTRY_DSN`/`ENVIRONMENT` integration
+(`send_default_pii=False`). As a panel **extra** on top of that, entries can
+also be shipped to an append-only WORM journal (`AUDIT_WORM_PATH`) and/or a SIEM
+collector (`AUDIT_SIEM_URL`, ECS JSON) — best-effort, never blocking an action.
 
-Status: ✅ **complete central audit + tamper-evident hash chain + WORM/SIEM
-shipping**; ⚠️ **back `AUDIT_WORM_PATH` with immutable (object-lock) storage and
-set retention to your records schedule.**
+Status: ✅ **central audit + tamper-evident hash chain + app-uniform anchoring
+(stdout + `audit_anchors`) + Sentry, with optional WORM/SIEM shipping**;
+⚠️ **ship container stdout to your log aggregator (and back `AUDIT_WORM_PATH`
+with object-lock storage if used); set retention to your records schedule.**
 
 ---
 
@@ -174,21 +201,26 @@ set retention to your records schedule.**
 - **Deletion:** decommission crypto-shreds the town's KMS wrapping key → all
   envelope-encrypted PII is unrecoverable. **Take-offline** is the reversible
   counterpart: stack stopped, *all* data/PII/keys retained.
-- **Availability/DR:** **PITR is now built in** (`BACKUPS_ENABLED`). Town stacks
-  turn on continuous **WAL archiving** to a `/backups` volume (see the `pitr`
-  block in the compose template), and the panel takes periodic **base snapshots**
-  (`pg_basebackup`) on the `BACKUP_POLL_SECONDS` cadence, cataloged in
-  `backup_records` and pruned to `BACKUP_RETENTION_DAYS`
-  (`orchestrator/backups.py`; `POST /api/tenants/{id}/backup`,
-  `GET /api/tenants/{id}/backups`). Confirm the `/backups` volume is on
+- **Availability/DR:** backups use the **same method + env vars as the app**
+  (`orchestrator/backups.py`, mirroring `backup_service.py`): `pg_dump -Fc` |
+  `gpg --symmetric --cipher-algo AES256` | upload to S3-compatible storage.
+  In managed hosting the town app's own backups are disabled (the state runs
+  DR), so with `BACKUPS_ENABLED` the panel backs up every town on the
+  `BACKUP_POLL_SECONDS` cadence, cataloged in `backup_records`, pruned to
+  `BACKUP_RETENTION_DAYS` (`POST /api/tenants/{id}/backup`,
+  `GET /api/tenants/{id}/backups`). Configure with the app's names:
+  `BACKUP_S3_BUCKET`, `BACKUP_S3_ACCESS_KEY`, `BACKUP_S3_SECRET_KEY`,
+  `BACKUP_ENCRYPTION_KEY`, `BACKUP_S3_ENDPOINT`, `BACKUP_S3_REGION`. Restore
+  mirrors the app (`gpg --decrypt | pg_restore --clean`). Point the bucket at
   cross-region durable storage and rehearse a restore before ATO.
 
-- **Edge hardening:** with `WAF_ENABLED`, rendered town Caddy sites carry an
-  OWASP CRS (Coraza) block + per-client rate limiting + hardened security
-  headers (HSTS, nosniff, DENY framing) and a request-body cap. The WAF and
-  rate-limit directives need a Caddy built with the `coraza-caddy` and
-  `caddy-ratelimit` modules — build it with xcaddy:
-  `xcaddy build --with github.com/corazawaf/coraza-caddy/v2 --with github.com/mholt/caddy-ratelimit`.
+- **Edge hardening:** the panel's own API carries the app's security-header set
+  and **SlowAPI** per-client rate limiting (`RATE_LIMIT_RPM`, default 500/min),
+  uniform with the app. Additionally (panel **extra**), with `WAF_ENABLED`
+  rendered town Caddy sites carry an OWASP CRS (Coraza) block + edge rate
+  limiting; those directives need a Caddy built with the `coraza-caddy` and
+  `caddy-ratelimit` modules — `xcaddy build --with
+  github.com/corazawaf/coraza-caddy/v2 --with github.com/mholt/caddy-ratelimit`.
 
 - **TLS + health alerting:** with `SSL_CHECK_ENABLED`, alert evaluation probes
   each active town's certificate and raises a `cert_expiry` alert within
@@ -199,26 +231,29 @@ set retention to your records schedule.**
 
 ## Summary checklist
 
+"Uniform with the app" below means the panel uses the **same modules, scheme,
+and environment variables** as the Pinpoint 311 app, so an operator sets both up
+identically.
+
 | Control | Code today | Before government ATO |
 |---|---|---|
-| Secrets at rest | ✅ Fernet, write-only, versioned + rotatable, **KMS/HSM envelope encryption** (`KEY_PROVIDER=kms`) | ⚠️ provision the cloud KEK + credentials |
-| Image provenance | ✅ configurable registry, digest pinning, `REQUIRE_SIGNED_IMAGES`, **cosign verify at provision** (`COSIGN_VERIFY`) | ⚠️ private mirror, vulnerability scan |
-| Operator authN | ✅ fail-closed token + OIDC identity header + **oauth2-proxy SSO/MFA sidecar** (`--profile sso`) | ⚠️ point at your IdP, require MFA in IdP policy |
-| Operator authZ | ✅ **RBAC** (viewer/operator/approver/admin via `ROLES_HEADER`+`ROLE_GROUP_MAP`); decommission/offload require approver | ⚠️ map groups to roles in your IdP; consider dual-approval on decommission |
-| Audit | ✅ central, hash-chained + `/api/audit/verify`, **WORM journal + SIEM shipping** | ⚠️ back WORM with object-lock storage; set retention |
-| Availability / DR | ✅ **PITR: WAL archiving + periodic base snapshots** (`BACKUPS_ENABLED`) | ⚠️ durable cross-region `/backups`, rehearse restore |
-| Edge protection | ✅ **WAF (OWASP CRS) + rate limiting + security headers** at Caddy (`WAF_ENABLED`) | ⚠️ xcaddy build with coraza + ratelimit modules |
-| Monitoring | ✅ down/drift/cost + **`cert_expiry` + `health`** alerts (`SSL_CHECK_ENABLED`) | ⚠️ wire alert webhook to your on-call |
+| Secrets at rest | ✅ **envelope encryption uniform with the app** — Google/Azure/AWS KMS via `KMS_PROVIDER`+`REQUIRE_KMS`, `pii2:` tokens, rotation | ⚠️ provision the cloud KEK + credentials |
+| Image provenance | ✅ configurable registry, digest pinning, `REQUIRE_SIGNED_IMAGES`, cosign verify at provision (`COSIGN_VERIFY`) *(panel extra)* | ⚠️ private mirror, vulnerability scan |
+| Operator authN | ✅ fail-closed token + **app-uniform OIDC catalog** (`IDENTITY_PROVIDER`, `AUTH0_*`/`ENTRA_*`/`OKTA_*`/`OIDC_*`); cookie+PKCE; optional oauth2-proxy MFA | ⚠️ point at your IdP, require MFA in IdP policy |
+| Operator authZ | ✅ **RBAC** (viewer/operator/approver/admin via `ROLE_GROUP_MAP`); decommission/offload require approver | ⚠️ map groups to roles in your IdP; consider dual-approval on decommission |
+| Audit | ✅ central, hash-chained + `/api/audit/verify`, **app-uniform anchor (stdout + `audit_anchors`) + Sentry**; optional WORM/SIEM | ⚠️ ship stdout to your aggregator; set retention |
+| Availability / DR | ✅ **backups uniform with the app** — `pg_dump -Fc` \| gpg AES256 → S3 (`BACKUP_S3_*`, `BACKUP_ENCRYPTION_KEY`) | ⚠️ durable cross-region bucket, rehearse restore |
+| Edge protection | ✅ **app-uniform security headers + SlowAPI rate limiting** (`RATE_LIMIT_RPM`); optional Caddy WAF (`WAF_ENABLED`) | ⚠️ xcaddy build with coraza + ratelimit for the WAF extra |
+| Monitoring | ✅ down/drift/cost + `cert_expiry` + `health` alerts (`SSL_CHECK_ENABLED`); Sentry (`SENTRY_DSN`) | ⚠️ wire alert webhook to your on-call |
 | Tenant isolation | ✅ silo | ✅ |
 | Crypto-shred deletion | ✅ | ✅ |
 | Transport | deploy TLS (Caddy) | ⚠️ enforce mTLS to registry/DB |
 
-Since the first draft, RBAC, tamper-evident audit, key rotation, and the
-signed-image gate were joined by **KMS/HSM envelope encryption, cosign
-verification, WORM/SIEM audit shipping, PITR backups, edge WAF + rate limiting,
-the oauth2-proxy SSO/MFA sidecar, and TLS/health alerting** (see the ✅ column).
-The remaining ⚠️ items are deployment wiring — cloud KEK credentials, the IdP
-behind oauth2-proxy, a private image registry + scanner, object-lock storage for
-the WORM journal, durable backup storage, and an xcaddy build with the WAF/rate
--limit modules. The code seams for each are named above; none require
-re-architecting.
+The panel's KMS, SSO, backups, audit, and edge headers/rate-limiting now use the
+**same implementation and env-var setup as the Pinpoint 311 app** (Google/Azure/
+AWS KMS envelope, `IDENTITY_PROVIDER` catalog, pg_dump+GPG+S3, audit anchor +
+Sentry, SlowAPI + security headers). A handful of controls are panel-only
+additions the app doesn't have (cosign verification, oauth2-proxy MFA sidecar,
+Caddy WAF, WORM/SIEM shipping); those remain opt-in. The remaining ⚠️ items are
+deployment wiring — cloud KEK credentials, the IdP, a private image registry +
+scanner, durable backup storage, log aggregation — none require re-architecting.

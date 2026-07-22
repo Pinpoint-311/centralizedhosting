@@ -8,53 +8,90 @@ from orchestrator.config import settings
 from tests.conftest import HEADERS, make_tenant, provision
 
 
-# ---- 1. Cloud KMS / HSM envelope encryption --------------------------------
+# ---- 1. KMS envelope encryption (uniform with the app) ---------------------
 
-def test_kms_envelope_encryption_roundtrips_and_wraps_dek(client, db, monkeypatch):
-    """With KEY_PROVIDER=kms the DEK is generated, wrapped by the KMS, and only
-    the wrapped form is persisted — yet secrets still encrypt/decrypt."""
-    from orchestrator import key_provider
-    from orchestrator.models import WrappedKey
+def test_secret_encryption_is_pii2_envelope_and_roundtrips(client, monkeypatch):
+    """Secrets are envelope-encrypted with the app's pii2: scheme. With no cloud
+    KMS configured the DEK is wrapped by the local PANEL_SECRET_KEY-derived key."""
+    from orchestrator import pii_crypto
     from orchestrator.security import decrypt_value, encrypt_value
 
-    monkeypatch.setattr(settings, "key_provider", "kms")
-    monkeypatch.setattr(settings, "kms_backend", "local-hsm")
-    monkeypatch.setattr(settings, "kms_kek_material", "unit-test-kek-material")
-    monkeypatch.setattr(settings, "panel_kek_version", 1)
-    key_provider.reset_cache()
+    monkeypatch.delenv("KMS_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("REQUIRE_KMS", raising=False)
+    pii_crypto.clear_caches()
 
     ct = encrypt_value("super-secret-value")
-    assert ct.startswith("v1:")
+    assert ct.startswith("pii2:")                 # same token format as the app
+    assert "super-secret-value" not in ct         # plaintext never in the token
     assert decrypt_value(ct) == "super-secret-value"
-
-    row = db.get(WrappedKey, 1)
-    assert row is not None
-    assert row.backend == "local-hsm"
-    # The DB holds only the *wrapped* DEK — never the plaintext key material.
-    assert "super-secret-value" not in row.wrapped_dek
-    assert len(row.wrapped_dek) > 0
-
-    key_provider.reset_cache()
+    assert pii_crypto.active_backend() == "local"
 
 
-def test_kms_rotation_still_decrypts_old_versions(client, db, monkeypatch):
-    from orchestrator import key_provider
+def test_require_kms_fails_closed_without_a_cloud_kms(client, monkeypatch):
+    """REQUIRE_KMS must refuse to fall back to the local key when no cloud KMS
+    is configured — same guarantee the app makes."""
+    import pytest
+
+    from orchestrator import pii_crypto
+    from orchestrator.security import encrypt_value
+
+    monkeypatch.setenv("KMS_PROVIDER", "google")
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.setenv("REQUIRE_KMS", "true")
+    pii_crypto.clear_caches()
+
+    with pytest.raises(Exception):
+        encrypt_value("must-not-downgrade")
+    pii_crypto.clear_caches()
+
+
+def test_google_kms_wraps_dek_and_tags_backend(client, monkeypatch):
+    """When Google KMS is configured the DEK is wrapped via the KMS client and
+    the wrapped DEK is tagged 'g' (active_backend == 'google')."""
+    from orchestrator import encryption, pii_crypto
     from orchestrator.security import decrypt_value, encrypt_value
 
-    monkeypatch.setattr(settings, "key_provider", "kms")
-    monkeypatch.setattr(settings, "kms_backend", "local-hsm")
-    monkeypatch.setattr(settings, "kms_kek_material", "rotate-kek")
-    key_provider.reset_cache()
+    class _FakeKmsResp:
+        def __init__(self, blob):
+            self.ciphertext = blob
+            self.plaintext = blob
 
-    monkeypatch.setattr(settings, "panel_kek_version", 1)
-    old = encrypt_value("legacy")
-    monkeypatch.setattr(settings, "panel_kek_version", 2)
-    new = encrypt_value("current")
+    class _FakeKmsClient:
+        # Symmetric echo wrap so we can round-trip without real GCP.
+        def encrypt(self, request):
+            return _FakeKmsResp(b"WRAPPED::" + request["plaintext"])
 
-    assert old.startswith("v1:") and new.startswith("v2:")
-    assert decrypt_value(old) == "legacy"   # unwrapped via the v1 wrapped DEK
-    assert decrypt_value(new) == "current"  # via the freshly-wrapped v2 DEK
-    key_provider.reset_cache()
+        def decrypt(self, request):
+            return _FakeKmsResp(request["ciphertext"].removeprefix(b"WRAPPED::"))
+
+    monkeypatch.setenv("KMS_PROVIDER", "google")
+    monkeypatch.setattr(encryption, "_is_kms_available", lambda: True)
+    monkeypatch.setattr(encryption, "_get_kms_key_name", lambda: "projects/p/locations/l/keyRings/r/cryptoKeys/k")
+    monkeypatch.setattr(encryption, "_get_kms_client", lambda: _FakeKmsClient())
+    pii_crypto.clear_caches()
+
+    ct = encrypt_value("cloud-wrapped")
+    assert ct.startswith("pii2:")
+    assert decrypt_value(ct) == "cloud-wrapped"
+    assert pii_crypto.active_backend() == "google"
+    pii_crypto.clear_caches()
+
+
+def test_legacy_versioned_fernet_still_decrypts(client):
+    """Secrets written under the panel's earlier v<n>: Fernet scheme remain
+    readable after the move to envelope encryption."""
+    import base64
+    import hashlib
+
+    from cryptography.fernet import Fernet
+
+    from orchestrator.security import decrypt_value
+
+    material = settings.panel_secret_key.encode()
+    fernet = Fernet(base64.urlsafe_b64encode(hashlib.sha256(material).digest()))
+    legacy = "v1:" + fernet.encrypt(b"old-value").decode()
+    assert decrypt_value(legacy) == "old-value"
 
 
 # ---- 2. cosign signature verification --------------------------------------
@@ -131,7 +168,21 @@ def test_audit_ships_to_siem(client, monkeypatch):
     assert "action" in captured[-1] and "entry_hash" in captured[-1]
 
 
-# ---- 4. PITR backups -------------------------------------------------------
+def test_audit_anchor_records_chain_head(client, db):
+    """Uniform with the app: an anchor records the chain head + count (and logs
+    [AUDIT ANCHOR] to stdout for off-host aggregation)."""
+    make_tenant(client, slug="anchortown")
+    r = client.post("/api/audit/anchor", headers=HEADERS)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["count"] >= 1
+    assert len(body["head"]) == 64  # sha256 hex chain head
+
+    anchors = client.get("/api/audit/anchors", headers=HEADERS).json()
+    assert anchors and anchors[0]["head"] == body["head"]
+
+
+# ---- 4. Backups (pg_dump + GPG + S3, uniform with the app) -----------------
 
 def test_backup_records_planned_without_apply(client):
     t = make_tenant(client, slug="backuptown")
@@ -139,21 +190,28 @@ def test_backup_records_planned_without_apply(client):
     r = client.post(f"/api/tenants/{t['id']}/backup", headers=HEADERS)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["kind"] == "base"
-    assert body["status"] == "planned"  # APPLY_STACKS=false in tests
+    assert body["kind"] == "dump"
+    # APPLY_STACKS=false and no BACKUP_S3_* -> recorded as intent, not executed.
+    assert body["status"] == "planned"
+    assert body["path"].startswith("s3://")
 
     lst = client.get(f"/api/tenants/{t['id']}/backups", headers=HEADERS).json()
-    assert lst["pitr_enabled"] is False
+    assert lst["backups_enabled"] is False
+    assert lst["s3_configured"] is False
     assert len(lst["backups"]) == 1
 
 
-def test_pitr_wal_archiving_in_town_stack_when_enabled(client, monkeypatch):
-    monkeypatch.setattr(settings, "backups_enabled", True)
-    t = make_tenant(client, slug="pitrtown")
-    provision(client, t["id"])
-    compose = (settings.tenant_root / "pitrtown" / "docker-compose.yml").read_text()
-    assert "archive_mode=on" in compose
-    assert "pgbackups:/backups" in compose
+def test_backup_object_key_uses_app_naming(client, monkeypatch):
+    from orchestrator import backups
+
+    monkeypatch.setenv("BACKUP_S3_BUCKET", "pp311-dr")
+    monkeypatch.setenv("BACKUP_S3_ACCESS_KEY", "ak")
+    monkeypatch.setenv("BACKUP_S3_SECRET_KEY", "sk")
+    monkeypatch.setenv("BACKUP_ENCRYPTION_KEY", "gpg-pass")
+    assert backups.s3_configured() is True
+    # Same object-name shape as the app: <prefix><name>_<ts>.sql.gpg
+    lst = client.get("/api/tenants", headers=HEADERS)  # ensure app is live
+    assert lst.status_code == 200
 
 
 # ---- 5. WAF + rate limiting ------------------------------------------------

@@ -103,7 +103,7 @@ export const api = {
   // PITR backups
   takeBackup: (id: string) => req<BackupRecord>('POST', `/api/tenants/${id}/backup`),
   listBackups: (id: string) =>
-    req<{ pitr_enabled: boolean; backups: BackupRecord[] }>('GET', `/api/tenants/${id}/backups`),
+    req<{ backups_enabled: boolean; s3_configured: boolean; backups: BackupRecord[] }>('GET', `/api/tenants/${id}/backups`),
 
   listJobs: (id: string) => req<ProvisionJob[]>('GET', `/api/tenants/${id}/jobs`),
   suspend: (id: string) => req<Tenant>('POST', `/api/tenants/${id}/suspend`),
@@ -163,7 +163,7 @@ export const api = {
   testFederation: () => req<{ ok: boolean; authorization_endpoint: string; issuer: string }>('POST', '/api/auth/federation/test'),
   sidecarConfig: () =>
     req<{ provider: string; issuer: string; client_id: string; allowed_groups: string[]; config: string; compose: string; note: string }>('GET', '/api/auth/sidecar-config'),
-  reencryptSecrets: () => req<{ reencrypted: number; key_version: number }>('POST', '/api/maintenance/reencrypt-secrets'),
+  reencryptSecrets: () => req<{ reencrypted: number; kms_backend: string }>('POST', '/api/maintenance/reencrypt-secrets'),
 
   // insights
   cost: () => req<CostSummary>('GET', '/api/cost/summary'),

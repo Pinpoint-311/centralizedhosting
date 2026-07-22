@@ -4,6 +4,11 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from orchestrator import __version__
 from orchestrator.api import (
@@ -40,13 +45,17 @@ async def _lifespan(app: FastAPI):
     if settings.alert_poll_seconds and settings.alert_poll_seconds > 0:
         async def _alert_loop():
             from orchestrator.db import SessionLocal
-            from orchestrator import insights
+            from orchestrator import audit, insights
 
             while True:
                 await asyncio.sleep(settings.alert_poll_seconds)
                 try:
                     with SessionLocal() as db:
                         insights.evaluate_alerts(db)
+                        # Tamper-anchor the audit chain to stdout for off-host
+                        # aggregation (uniform with the app's periodic anchor).
+                        audit.anchor_chain(db)
+                        db.commit()
                 except Exception:
                     pass  # never let the background loop crash the app
 
@@ -97,7 +106,49 @@ async def _lifespan(app: FastAPI):
         task.cancel()
 
 
+def _init_sentry() -> None:
+    """Optional error monitoring — uniform with the app (SENTRY_DSN, ENVIRONMENT;
+    send_default_pii=False). No-op if the DSN or SDK is absent."""
+    import os
+
+    dsn = os.getenv("SENTRY_DSN")
+    if not dsn:
+        return
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(dsn=dsn, environment=os.getenv("ENVIRONMENT", "production"),
+                        send_default_pii=False, traces_sample_rate=0.1)
+    except Exception:  # noqa: BLE001 — never let monitoring setup break startup
+        pass
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Baseline security response headers — same set as the app's middleware."""
+
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith(("/api/docs", "/api/redoc", "/docs", "/redoc")):
+            return response
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("X-XSS-Protection", "1; mode=block")
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "geolocation=(self), camera=(), microphone=(), payment=(), usb=()")
+        response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
+        if path.startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "no-store, max-age=0")
+        return response
+
+
 def create_app() -> FastAPI:
+    _init_sentry()
+
     app = FastAPI(
         title="Pinpoint 311 Orchestrator",
         description=(
@@ -108,6 +159,17 @@ def create_app() -> FastAPI:
         version=__version__,
         lifespan=_lifespan,
     )
+
+    # Rate limiting — uniform with the app (SlowAPI, per-client). RATE_LIMIT_RPM
+    # tunes the per-minute ceiling.
+    from orchestrator.config import settings as _settings
+
+    limiter = Limiter(key_func=get_remote_address,
+                      default_limits=[f"{_settings.rate_limit_rpm}/minute"])
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
 
     app.include_router(tenants.router)
     app.include_router(secrets.router)

@@ -8,6 +8,9 @@ os.environ["PANEL_SECRET_KEY"] = "test-secret-key"
 os.environ["TENANT_ROOT"] = f"{_tmp}/tenants"
 os.environ["APPLY_STACKS"] = "false"
 os.environ["BASE_DOMAIN"] = "311.test.gov"
+# The suite fires many requests from one client; lift the rate-limit ceiling so
+# SlowAPI doesn't 429 mid-run (production keeps the 500/min default).
+os.environ["RATE_LIMIT_RPM"] = "1000000"
 
 import pytest
 from fastapi.testclient import TestClient
