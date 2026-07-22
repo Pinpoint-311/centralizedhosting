@@ -27,10 +27,11 @@ import {
   Download,
   RotateCcw,
   ServerCog,
+  DatabaseBackup,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { useSession } from '../lib/session'
-import type { KeyCatalog, OsmResult, ProvisionJob, SecretOut, Tenant } from '../lib/types'
+import type { BackupRecord, KeyCatalog, OsmResult, ProvisionJob, SecretOut, Tenant } from '../lib/types'
 import {
   Badge,
   Button,
@@ -747,6 +748,7 @@ function Provisioning({ tenant }: { tenant: Tenant }) {
   return (
     <div className="space-y-4">
       <SetupCredential tenant={tenant} />
+      <BackupsCard tenant={tenant} />
       {jobs.length === 0 && (
         <Card>
           <p className="text-white/50 text-center py-6">
@@ -1040,6 +1042,93 @@ function OffloadPreview({ tenantId, onClose }: { tenantId: string; onClose: () =
         </div>
       )}
     </Modal>
+  )
+}
+
+// ------------------------------------------------------------- Backups (PITR)
+function BackupsCard({ tenant }: { tenant: Tenant }) {
+  const toast = useToast()
+  const { can } = useSession()
+  const [rows, setRows] = useState<BackupRecord[]>([])
+  const [pitr, setPitr] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+
+  async function load() {
+    try {
+      const r = await api.listBackups(tenant.id)
+      setRows(r.backups)
+      setPitr(r.pitr_enabled)
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+  useEffect(() => {
+    load()
+  }, [tenant.id])
+
+  async function take() {
+    setBusy(true)
+    try {
+      const rec = await api.takeBackup(tenant.id)
+      toast.push(rec.status === 'completed' ? 'Base backup taken' : 'Base backup recorded (planned)')
+      await load()
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function fmtBytes(n: number) {
+    if (!n) return '—'
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+    return `${(n / 1024 / 1024).toFixed(1)} MB`
+  }
+
+  return (
+    <Card>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
+            <DatabaseBackup className="w-5 h-5" /> Backups (PITR)
+            {pitr ? <Badge variant="success">WAL archiving on</Badge> : <Badge>base snapshots only</Badge>}
+          </h3>
+          <p className="text-sm text-white/50 max-w-2xl">
+            Point-in-time recovery: when enabled the town's Postgres continuously archives WAL, and
+            the panel takes periodic base snapshots (pruned to the retention window). Take one now, or
+            rely on the scheduled cadence.
+          </p>
+        </div>
+        {can('operator') && (
+          <Button variant="secondary" onClick={take} isLoading={busy} leftIcon={<DatabaseBackup className="w-4 h-4" />}>
+            Take base backup
+          </Button>
+        )}
+      </div>
+
+      {loading ? (
+        <Spinner />
+      ) : rows.length === 0 ? (
+        <p className="text-white/40 text-sm mt-4">No backups recorded yet.</p>
+      ) : (
+        <div className="mt-4 space-y-1.5">
+          {rows.map((b) => (
+            <div key={b.id} className="flex items-center gap-3 text-sm py-1.5 border-b border-white/5">
+              <Badge variant={b.status === 'completed' ? 'success' : b.status === 'failed' ? 'danger' : 'warning'}>
+                {b.status}
+              </Badge>
+              <span className="text-white/70 w-16 shrink-0">{b.kind}</span>
+              <span className="text-white/40 flex-1 truncate font-mono text-xs">{b.path}</span>
+              <span className="text-white/40 shrink-0">{fmtBytes(b.size_bytes)}</span>
+              <span className="text-white/40 shrink-0">{b.created_at ? timeAgo(b.created_at) : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   )
 }
 

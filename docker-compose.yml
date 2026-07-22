@@ -22,7 +22,7 @@ services:
     restart: unless-stopped
     environment:
       PANEL_DATABASE_URL: postgresql+psycopg://panel:${PANEL_DB_PASSWORD}@panel-db/panel
-      PANEL_SECRET_KEY: ${PANEL_SECRET_KEY:?Set PANEL_SECRET_KEY — encrypts brokered secrets + signs break-glass tokens}
+      PANEL_SECRET_KEY: ${PANEL_SECRET_KEY:?Set PANEL_SECRET_KEY — encrypts brokered secrets at rest}
       PANEL_API_TOKEN: ${PANEL_API_TOKEN:?Set PANEL_API_TOKEN — operator API auth}
       BASE_DOMAIN: ${BASE_DOMAIN:-311.example.gov}
       TENANT_ROOT: /tenants
@@ -31,8 +31,41 @@ services:
       # status stays current without the manual button (seconds; 0 disables).
       TELEMETRY_POLL_SECONDS: ${TELEMETRY_POLL_SECONDS:-300}
       ALERT_POLL_SECONDS: ${ALERT_POLL_SECONDS:-300}
+      # --- Government hardening (all optional; see GOVERNMENT_PRODUCTION.md) ---
+      # KMS/HSM envelope encryption of the panel data key.
+      KEY_PROVIDER: ${KEY_PROVIDER:-local}
+      KMS_BACKEND: ${KMS_BACKEND:-local-hsm}
+      KMS_KEY_RESOURCE: ${KMS_KEY_RESOURCE:-}
+      KMS_KEK_MATERIAL: ${KMS_KEK_MATERIAL:-}
+      # Supply chain: refuse unpinned images + cosign-verify signatures.
+      REQUIRE_SIGNED_IMAGES: ${REQUIRE_SIGNED_IMAGES:-false}
+      COSIGN_VERIFY: ${COSIGN_VERIFY:-false}
+      COSIGN_IDENTITY: ${COSIGN_IDENTITY:-}
+      COSIGN_ISSUER: ${COSIGN_ISSUER:-}
+      COSIGN_KEY: ${COSIGN_KEY:-}
+      # Off-host audit shipping (WORM journal + SIEM).
+      AUDIT_WORM_PATH: ${AUDIT_WORM_PATH:-}
+      AUDIT_SIEM_URL: ${AUDIT_SIEM_URL:-}
+      AUDIT_SIEM_TOKEN: ${AUDIT_SIEM_TOKEN:-}
+      # TLS cert-expiry + health alerting.
+      SSL_CHECK_ENABLED: ${SSL_CHECK_ENABLED:-false}
+      CERT_EXPIRY_WARN_DAYS: ${CERT_EXPIRY_WARN_DAYS:-21}
+      # PITR backups (WAL archiving in town stacks + periodic base snapshots).
+      BACKUPS_ENABLED: ${BACKUPS_ENABLED:-false}
+      BACKUP_POLL_SECONDS: ${BACKUP_POLL_SECONDS:-0}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_ROOT: /backups
+      # Edge WAF + rate limiting in rendered town Caddy sites.
+      WAF_ENABLED: ${WAF_ENABLED:-false}
+      RATE_LIMIT_RPS: ${RATE_LIMIT_RPS:-20}
+      RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-40}
+      # Trust the SSO sidecar's identity/group headers (see oauth2-proxy below).
+      OPERATOR_HEADER: ${OPERATOR_HEADER:-}
+      ROLES_HEADER: ${ROLES_HEADER:-}
+      ROLE_GROUP_MAP: ${ROLE_GROUP_MAP:-}
     volumes:
       - ${TENANT_ROOT_HOST:-./tenants}:/tenants
+      - ${BACKUP_ROOT_HOST:-./backups}:/backups
       # Only needed with APPLY_STACKS=true — the panel is the ONE trusted
       # component allowed to drive Docker on the managed host (the towns
       # themselves never get the socket; see ORCHESTRATOR_PLAN.md A2).
@@ -42,6 +75,27 @@ services:
     depends_on:
       panel-db:
         condition: service_healthy
+
+  # SSO + MFA sidecar (opt-in): front the panel with oauth2-proxy so every
+  # operator authenticates against the host IdP (MFA enforced there) before any
+  # panel route is reachable. oauth2-proxy injects X-Forwarded-User /
+  # X-Forwarded-Groups, which the panel maps to RBAC roles. Render this config
+  # from the panel's federation settings: GET /api/auth/sidecar-config.
+  # Enable with:  docker compose --profile sso up -d
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.6.0
+    profiles: ["sso"]
+    restart: unless-stopped
+    command: ["--config=/etc/oauth2-proxy.cfg", "--http-address=0.0.0.0:4180"]
+    volumes:
+      - ${OAUTH2_PROXY_CFG:-./oauth2-proxy.cfg}:/etc/oauth2-proxy.cfg:ro
+    environment:
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET:-}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET:-}
+    ports:
+      - "0.0.0.0:${PANEL_HTTPS_PORT:-443}:4180"
+    depends_on:
+      - panel
 
 volumes:
   panel_pg:

@@ -8,12 +8,27 @@ services:
   db:
     image: ghcr.io/baosystems/postgis:15-3.3
     restart: unless-stopped
+{%- if pitr %}
+    # PITR: continuous WAL archiving to the /backups volume. Combined with the
+    # panel's periodic pg_basebackup, the DB can be recovered to any point in
+    # time. See MIGRATION/backup runbook for restore steps.
+    command: >
+      postgres
+      -c wal_level=replica
+      -c archive_mode=on
+      -c archive_command='mkdir -p /backups/wal && test ! -f /backups/wal/%f && cp %p /backups/wal/%f'
+      -c max_wal_senders=3
+      -c archive_timeout=300
+{%- endif %}
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+{%- if pitr %}
+      - pgbackups:/backups
+{%- endif %}
     security_opt:
       - no-new-privileges:true
     healthcheck:
@@ -132,6 +147,9 @@ services:
 
 volumes:
   postgres_data:
+{%- if pitr %}
+  pgbackups:
+{%- endif %}
 
 networks:
   shared:

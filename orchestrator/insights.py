@@ -174,6 +174,8 @@ def evaluate_alerts(db: Session) -> list[Alert]:
         new.append(a)
         open_keys.add((t.id, kind))
 
+    from orchestrator.config import settings
+
     for t in tenants:
         snap = snaps.get(t.id)
         if snap is not None and snap.reachable is False:
@@ -183,11 +185,54 @@ def evaluate_alerts(db: Session) -> list[Alert]:
                 t, "drift", "warning",
                 f"{t.name} runs {t.running_version}; latest is {latest.version}.",
             )
+        # Degraded integrations (reachable, but a dependency the town reports as
+        # unhealthy in its telemetry) — operational, never resident data.
+        for name in _unhealthy_integrations(snap):
+            raise_alert(
+                t, "health", "warning",
+                f"{t.name}: integration '{name}' is reporting unhealthy.",
+            )
+
+    # TLS certificate expiry — probe each active town's public host.
+    if settings.ssl_check_enabled:
+        from orchestrator import sslcheck
+
+        warn = settings.cert_expiry_warn_days
+        for t in tenants:
+            days = sslcheck.days_until_expiry(t.external_host)
+            if days is None or days > warn:
+                continue
+            severity = "critical" if days <= max(0, warn // 3) else "warning"
+            when = "has expired" if days < 0 else f"expires in {days} day(s)"
+            raise_alert(t, "cert_expiry", severity, f"{t.name}: TLS certificate {when}.")
 
     if new:
         db.commit()
         _notify(new)
     return new
+
+
+def _unhealthy_integrations(snap) -> list[str]:
+    """Names of integrations a town reports as not-ok in its telemetry.
+    Accepts either {name: bool} or {name: {"status"|"ok": ...}} shapes."""
+    health = (snap.payload.get("integration_health") if snap and snap.payload else None) or {}
+    if not isinstance(health, dict):
+        return []
+    bad = []
+    for name, value in health.items():
+        if isinstance(value, dict):
+            ok = value.get("ok")
+            status = str(value.get("status", "")).lower()
+            healthy = ok is True or status in ("ok", "healthy", "up", "pass")
+            if ok is None and not status:
+                healthy = True  # no signal -> don't alert
+        else:
+            healthy = bool(value) if isinstance(value, bool) else str(value).lower() in (
+                "ok", "healthy", "up", "true", "pass"
+            )
+        if not healthy:
+            bad.append(str(name))
+    return bad
 
 
 def _canonical_for(db: Session, tenant_id: str) -> dict[str, str]:

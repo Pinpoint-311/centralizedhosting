@@ -3,6 +3,7 @@ import type {
   Analytics,
   Announcement2,
   AuditEntry,
+  BackupRecord,
   BulkResultRow,
   ComplianceSummary,
   CostSummary,
@@ -98,6 +99,12 @@ export const api = {
   offloadComplete: (id: string) => req<{ status: string }>('POST', `/api/tenants/${id}/offload/complete`),
   offloadCancel: (id: string) => req<{ status: string }>('POST', `/api/tenants/${id}/offload/cancel`),
   offloadBundleUrl: (id: string) => `/api/tenants/${id}/offload/bundle`,
+
+  // PITR backups
+  takeBackup: (id: string) => req<BackupRecord>('POST', `/api/tenants/${id}/backup`),
+  listBackups: (id: string) =>
+    req<{ pitr_enabled: boolean; backups: BackupRecord[] }>('GET', `/api/tenants/${id}/backups`),
+
   listJobs: (id: string) => req<ProvisionJob[]>('GET', `/api/tenants/${id}/jobs`),
   suspend: (id: string) => req<Tenant>('POST', `/api/tenants/${id}/suspend`),
   resume: (id: string) => req<Tenant>('POST', `/api/tenants/${id}/resume`),
@@ -154,6 +161,8 @@ export const api = {
   getFederation: () => req<FederationConfig>('GET', '/api/auth/federation'),
   putFederation: (body: Record<string, unknown>) => req<FederationConfig>('PUT', '/api/auth/federation', body),
   testFederation: () => req<{ ok: boolean; authorization_endpoint: string; issuer: string }>('POST', '/api/auth/federation/test'),
+  sidecarConfig: () =>
+    req<{ provider: string; issuer: string; client_id: string; allowed_groups: string[]; config: string; compose: string; note: string }>('GET', '/api/auth/sidecar-config'),
   reencryptSecrets: () => req<{ reencrypted: number; key_version: number }>('POST', '/api/maintenance/reencrypt-secrets'),
 
   // insights

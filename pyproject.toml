@@ -19,6 +19,14 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+# Cloud KMS/HSM backends for KEY_PROVIDER=kms (envelope encryption). Installed
+# only where that backend is used; the panel runs without them (local-hsm).
+kms-gcp = [
+    "google-cloud-kms>=2.21",
+]
+kms-aws = [
+    "boto3>=1.34",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -34,6 +34,17 @@ def caddy_sites_dir() -> Path:
     return settings.tenant_root / "_caddy"
 
 
+def _hardening_context() -> dict:
+    """Edge/DB hardening flags shared by the compose + Caddy templates. All
+    default off so the rendered output is unchanged unless explicitly enabled."""
+    return {
+        "pitr": settings.backups_enabled,
+        "waf_enabled": settings.waf_enabled,
+        "rate_limit_rps": settings.rate_limit_rps,
+        "rate_limit_burst": settings.rate_limit_burst,
+    }
+
+
 def _image_ref(image: str, version: str, digest: str | None) -> str:
     """Pin by immutable digest when available (image@sha256:…), else fall back
     to the mutable tag. Digest pinning is the government-correct posture."""
@@ -71,6 +82,7 @@ def render_stack(
         "external_host": tenant.external_host,
         "secrets": secrets,
         "state_provided_keys": brokered,
+        **_hardening_context(),
     }
 
     compose = _env.get_template("docker-compose.yml.j2").render(**context)
@@ -110,6 +122,7 @@ def preview_stack(
         "external_host": tenant.external_host,
         "secrets": {k: "••••••••" for k in secrets},  # masked
         "state_provided_keys": brokered,
+        **_hardening_context(),
     }
     return {
         "compose": _env.get_template("docker-compose.yml.j2").render(**context),

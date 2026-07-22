@@ -47,11 +47,20 @@ same pattern the app already uses for resident PII), not a static env var:
 Ciphertext is now **key-version tagged** (`v<n>:…`) and the panel supports
 **rotation**: bump `PANEL_KEK_VERSION`, then `POST /api/maintenance/reencrypt-secrets`
 (or Settings → "Re-encrypt secrets") rewrites every stored secret under the new
-key while still decrypting the old ones. The `KEY_PROVIDER` seam
-(`orchestrator/key_provider.py`) is where `local` becomes `kms`.
+key while still decrypting the old ones.
 
-Status: ✅ **at-rest encryption + versioned rotation**; ⚠️ **KMS-backed key
-material (`KEY_PROVIDER=kms`) is the remaining wiring.**
+**`KEY_PROVIDER=kms` is now implemented** (`orchestrator/key_provider.py` +
+`orchestrator/kms.py`): a random 32-byte data key (DEK) is generated once,
+**wrapped by a KMS/HSM key-encryption key (KEK)**, and only the wrapped DEK is
+persisted (`wrapped_keys` table) — the plaintext DEK never touches disk.
+Backends (`KMS_BACKEND`): `gcp` (Cloud KMS/HSM), `aws` (KMS/CloudHSM), and
+`local-hsm` (a software-held KEK from `KMS_KEK_MATERIAL`, for CI/self-host —
+still real envelope crypto). Destroying the KEK in the KMS crypto-shreds every
+secret wrapped under it. Cloud SDKs are optional extras (`pip install
+'.[kms-gcp]'` / `'.[kms-aws]'`).
+
+Status: ✅ **at-rest encryption + versioned rotation + KMS/HSM envelope
+encryption**; ⚠️ **provision the cloud KEK + credentials for your environment.**
 
 ---
 
@@ -87,9 +96,17 @@ production:
 5. **Air-gap the pull.** Egress-restrict managed hosts so they can only reach
    the private registry.
 
-Status: ✅ **registry is configurable and digest-pinning is supported/preferred**;
-⚠️ **mirroring, signing, verification, and scanning are deployment steps, not yet
-enforced by the panel.**
+**cosign signature verification is now enforced in-panel.** With `COSIGN_VERIFY`
+on (alongside `REQUIRE_SIGNED_IMAGES`), the provisioner's `verify_supply_chain`
+step runs `cosign verify` on each pinned `image@sha256:…` before the stack is
+rendered/applied and **fails the run** on a missing/invalid signature
+(`orchestrator/supply_chain.py`). Keyless verification pins the signing
+identity + OIDC issuer (`COSIGN_IDENTITY`/`COSIGN_ISSUER`); key-based uses
+`COSIGN_KEY`.
+
+Status: ✅ **registry is configurable, digest-pinning is preferred, and cosign
+verification is enforced at provision time**; ⚠️ **mirroring into a private
+registry and vulnerability scanning remain deployment steps.**
 
 ---
 
@@ -108,13 +125,20 @@ constant-time compared, fail-closed. On top of that there is now **RBAC**:
 - **Operator identity** for the audit trail comes from `OPERATOR_HEADER`
   (e.g. `X-Forwarded-User`) — the real user, not a generic label.
 
-Required for production: front the panel with an **OIDC/SSO reverse proxy**
-(Login.gov, Okta-for-Gov, Entra Gov) enforcing **MFA**, and map your IdP groups
-to roles. The shared token alone is still not sufficient — it must sit behind
-that proxy.
+The **OIDC/SSO reverse proxy with MFA is now shipped as an opt-in sidecar.**
+`docker compose --profile sso up -d` brings up `oauth2-proxy` in front of the
+panel; it authenticates every request against the host IdP (Login.gov,
+Okta-for-Gov, Entra Gov — **MFA enforced there**) and injects
+`X-Forwarded-User` / `X-Forwarded-Groups`, which the panel already maps to RBAC
+roles. The proxy config is **generated from the panel's own federation
+settings** (`GET /api/auth/sidecar-config`, `orchestrator/sidecar.py`) so the
+two can't drift; the client secret is injected from the secret manager as an
+env var and is never rendered. `allowed_groups` restricts sign-in to the groups
+the panel recognizes.
 
-Status: ✅ **fail-closed token + RBAC + operator-identity capture**;
-⚠️ **the OIDC/MFA proxy itself is deployment-supplied.**
+Status: ✅ **fail-closed token + RBAC + operator-identity capture + oauth2-proxy
+SSO/MFA sidecar (config generated from federation)**; ⚠️ **point it at your
+StateRAMP/FedRAMP IdP and require MFA in the IdP policy.**
 
 ---
 
@@ -127,11 +151,18 @@ time-boxed, reason-required, and audited on both the panel and the town.
 
 The trail is now **hash-chained** (each entry binds to the previous one's hash);
 `GET /api/audit/verify` (Settings → "Verify audit chain") recomputes it and
-pinpoints any insertion, edit, or deletion. For government, still add immutable
-off-host shipping (WORM/SIEM) and retention aligned to the records schedule.
+pinpoints any insertion, edit, or deletion.
 
-Status: ✅ **complete central audit + tamper-evident hash chain**;
-⚠️ **WORM/SIEM shipping is deployment-supplied.**
+**Off-host shipping is now built in** (`orchestrator/audit_ship.py`). Every entry
+is, best-effort: appended to an **append-only WORM journal** (`AUDIT_WORM_PATH`,
+NDJSON, carrying the hash chain so it's verifiable off-host — point it at an S3
+Object-Lock / WORM mount) and POSTed to a **SIEM** (`AUDIT_SIEM_URL`, ECS-shaped
+JSON, bearer-authed via `AUDIT_SIEM_TOKEN`). Shipping never blocks or fails an
+operator action; the on-host chain stays the integrity source of truth.
+
+Status: ✅ **complete central audit + tamper-evident hash chain + WORM/SIEM
+shipping**; ⚠️ **back `AUDIT_WORM_PATH` with immutable (object-lock) storage and
+set retention to your records schedule.**
 
 ---
 
@@ -143,9 +174,26 @@ Status: ✅ **complete central audit + tamper-evident hash chain**;
 - **Deletion:** decommission crypto-shreds the town's KMS wrapping key → all
   envelope-encrypted PII is unrecoverable. **Take-offline** is the reversible
   counterpart: stack stopped, *all* data/PII/keys retained.
-- **Availability/DR:** backups are state-managed (the `BACKUP_*` infra keys).
-  Confirm cross-region backups + a tested restore runbook per the records
-  schedule before ATO.
+- **Availability/DR:** **PITR is now built in** (`BACKUPS_ENABLED`). Town stacks
+  turn on continuous **WAL archiving** to a `/backups` volume (see the `pitr`
+  block in the compose template), and the panel takes periodic **base snapshots**
+  (`pg_basebackup`) on the `BACKUP_POLL_SECONDS` cadence, cataloged in
+  `backup_records` and pruned to `BACKUP_RETENTION_DAYS`
+  (`orchestrator/backups.py`; `POST /api/tenants/{id}/backup`,
+  `GET /api/tenants/{id}/backups`). Confirm the `/backups` volume is on
+  cross-region durable storage and rehearse a restore before ATO.
+
+- **Edge hardening:** with `WAF_ENABLED`, rendered town Caddy sites carry an
+  OWASP CRS (Coraza) block + per-client rate limiting + hardened security
+  headers (HSTS, nosniff, DENY framing) and a request-body cap. The WAF and
+  rate-limit directives need a Caddy built with the `coraza-caddy` and
+  `caddy-ratelimit` modules — build it with xcaddy:
+  `xcaddy build --with github.com/corazawaf/coraza-caddy/v2 --with github.com/mholt/caddy-ratelimit`.
+
+- **TLS + health alerting:** with `SSL_CHECK_ENABLED`, alert evaluation probes
+  each active town's certificate and raises a `cert_expiry` alert within
+  `CERT_EXPIRY_WARN_DAYS`, plus `health` alerts from unhealthy integrations in
+  telemetry (`orchestrator/sslcheck.py`, `orchestrator/insights.py`).
 
 ---
 
@@ -153,17 +201,24 @@ Status: ✅ **complete central audit + tamper-evident hash chain**;
 
 | Control | Code today | Before government ATO |
 |---|---|---|
-| Secrets at rest | ✅ Fernet, write-only, **versioned + rotatable** (`/api/maintenance/reencrypt-secrets`) | ⚠️ point `KEY_PROVIDER=kms` at a KMS/HSM (seam in `key_provider.py`) |
-| Image provenance | ✅ configurable registry, digest pinning, **`REQUIRE_SIGNED_IMAGES` gate** | ⚠️ private mirror, cosign verify at admission, scan |
-| Operator authN | ✅ fail-closed token + **OIDC identity header** (`OPERATOR_HEADER`) | ⚠️ deploy the OIDC + MFA proxy |
-| Operator authZ | ✅ **RBAC** (viewer/operator/approver/admin via `ROLES_HEADER`+`ROLE_GROUP_MAP`); decommission/break-glass require approver | ⚠️ map groups to roles in your IdP; consider dual-approval on decommission |
-| Audit | ✅ central, break-glass, **hash-chained + `/api/audit/verify`** | ⚠️ ship to WORM/SIEM off-host |
+| Secrets at rest | ✅ Fernet, write-only, versioned + rotatable, **KMS/HSM envelope encryption** (`KEY_PROVIDER=kms`) | ⚠️ provision the cloud KEK + credentials |
+| Image provenance | ✅ configurable registry, digest pinning, `REQUIRE_SIGNED_IMAGES`, **cosign verify at provision** (`COSIGN_VERIFY`) | ⚠️ private mirror, vulnerability scan |
+| Operator authN | ✅ fail-closed token + OIDC identity header + **oauth2-proxy SSO/MFA sidecar** (`--profile sso`) | ⚠️ point at your IdP, require MFA in IdP policy |
+| Operator authZ | ✅ **RBAC** (viewer/operator/approver/admin via `ROLES_HEADER`+`ROLE_GROUP_MAP`); decommission/offload require approver | ⚠️ map groups to roles in your IdP; consider dual-approval on decommission |
+| Audit | ✅ central, hash-chained + `/api/audit/verify`, **WORM journal + SIEM shipping** | ⚠️ back WORM with object-lock storage; set retention |
+| Availability / DR | ✅ **PITR: WAL archiving + periodic base snapshots** (`BACKUPS_ENABLED`) | ⚠️ durable cross-region `/backups`, rehearse restore |
+| Edge protection | ✅ **WAF (OWASP CRS) + rate limiting + security headers** at Caddy (`WAF_ENABLED`) | ⚠️ xcaddy build with coraza + ratelimit modules |
+| Monitoring | ✅ down/drift/cost + **`cert_expiry` + `health`** alerts (`SSL_CHECK_ENABLED`) | ⚠️ wire alert webhook to your on-call |
 | Tenant isolation | ✅ silo | ✅ |
 | Crypto-shred deletion | ✅ | ✅ |
 | Transport | deploy TLS (Caddy) | ⚠️ enforce mTLS to registry/DB |
 
 Since the first draft, RBAC, tamper-evident audit, key rotation, and the
-signed-image gate moved from "TODO" to implemented (see the ✅ column). The
-remaining ⚠️ items are deployment wiring (KMS credentials, the OIDC proxy, image
-signing infrastructure, WORM log storage) — the code seams for each are named
-above and none require re-architecting.
+signed-image gate were joined by **KMS/HSM envelope encryption, cosign
+verification, WORM/SIEM audit shipping, PITR backups, edge WAF + rate limiting,
+the oauth2-proxy SSO/MFA sidecar, and TLS/health alerting** (see the ✅ column).
+The remaining ⚠️ items are deployment wiring — cloud KEK credentials, the IdP
+behind oauth2-proxy, a private image registry + scanner, object-lock storage for
+the WORM journal, durable backup storage, and an xcaddy build with the WAF/rate
+-limit modules. The code seams for each are named above; none require
+re-architecting.

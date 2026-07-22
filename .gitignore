@@ -4,7 +4,9 @@ __pycache__/
 .pytest_cache/
 .venv/
 panel.db
+*.db
 tenants/
+backups/
 .env
 
 # Panel UI build artifacts (built in Docker/CI; dashboard.html is the fallback)

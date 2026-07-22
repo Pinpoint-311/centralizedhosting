@@ -3,6 +3,48 @@
 {{ external_host }} {
 	encode gzip
 
+	# Baseline security headers (core Caddy — no plugin needed).
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Cap request bodies (defense against oversized-payload abuse).
+	request_body {
+		max_size 25MB
+	}
+{%- if waf_enabled %}
+
+	# OWASP Core Rule Set via Coraza (needs a Caddy built with the coraza-caddy
+	# module — see GOVERNMENT_PRODUCTION.md). Blocks common web attacks before
+	# they reach the app.
+	coraza_waf {
+		load_owasp_crs
+		directives `
+			Include @coraza.conf-recommended
+			Include @crs-setup.conf.example
+			Include @owasp_crs/*.conf
+			SecRuleEngine On
+		`
+	}
+{%- endif %}
+{%- if waf_enabled %}
+
+	# Per-client rate limiting (needs a Caddy built with the caddy-ratelimit
+	# module). Sheds abusive bursts at the edge ({{ rate_limit_rps }} rps sustained,
+	# {{ rate_limit_burst }} burst).
+	rate_limit {
+		zone {{ tenant.slug }}_perip {
+			key {remote_host}
+			events {{ rate_limit_burst }}
+			window 1s
+		}
+	}
+{%- endif %}
+
 	handle /api/* {
 		reverse_proxy pp311-{{ tenant.slug }}-backend-1:8000
 	}

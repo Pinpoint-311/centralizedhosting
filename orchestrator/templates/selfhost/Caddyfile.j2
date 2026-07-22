@@ -1,5 +1,18 @@
 {{ external_host }} {
 	encode gzip
+
+	# Baseline security headers.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	request_body {
+		max_size 25MB
+	}
+
 	handle /api/* {
 		reverse_proxy backend:8000
 	}

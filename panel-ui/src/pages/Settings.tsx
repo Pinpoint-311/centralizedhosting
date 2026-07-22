@@ -60,6 +60,7 @@ export function Settings() {
         <Announcements />
 
         {can('admin') && <SsoFederation />}
+        {can('admin') && <SsoSidecar />}
 
         <Card>
           <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
@@ -429,6 +430,78 @@ function SsoFederation() {
           <Button variant="secondary" onClick={test} isLoading={busy === 'test'} disabled={!cfg.issuer}>Test discovery</Button>
         </div>
       </div>
+    </Card>
+  )
+}
+
+// ------------------------------------------- oauth2-proxy SSO/MFA sidecar
+import { ServerCog, Copy as CopyIcon } from 'lucide-react'
+
+function SsoSidecar() {
+  const toast = useToast()
+  const [data, setData] = useState<{ config: string; compose: string; allowed_groups: string[]; note: string } | null>(null)
+  const [view, setView] = useState<'config' | 'compose'>('config')
+  const [busy, setBusy] = useState(false)
+
+  async function reveal() {
+    setBusy(true)
+    try {
+      setData(await api.sidecarConfig())
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function copy() {
+    if (!data) return
+    navigator.clipboard.writeText(view === 'config' ? data.config : data.compose)
+    toast.push('Copied')
+  }
+
+  return (
+    <Card>
+      <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
+        <ServerCog className="w-5 h-5" /> SSO + MFA sidecar (oauth2-proxy)
+      </h3>
+      <p className="text-sm text-white/50 mb-4">
+        Front the panel with oauth2-proxy so every operator authenticates against your IdP (MFA
+        enforced there) before any route is reachable. This config is generated from the SSO
+        settings above; the client secret is injected from your secret manager and never shown.
+      </p>
+      {!data ? (
+        <Button variant="secondary" onClick={reveal} isLoading={busy} leftIcon={<ServerCog className="w-4 h-4" />}>
+          Generate sidecar config
+        </Button>
+      ) : (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="inline-flex rounded-lg bg-white/5 border border-white/10 p-1">
+              {(['config', 'compose'] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setView(v)}
+                  className={`px-3 py-1.5 text-sm rounded-md ${view === v ? 'bg-indigo-500/30 text-white' : 'text-white/60'}`}
+                >
+                  {v === 'config' ? 'oauth2-proxy.cfg' : 'docker-compose (sso profile)'}
+                </button>
+              ))}
+            </div>
+            <Button size="sm" variant="ghost" onClick={copy} leftIcon={<CopyIcon className="w-4 h-4" />}>Copy</Button>
+          </div>
+          {data.allowed_groups.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              <span className="text-xs text-white/40">Allowed groups:</span>
+              {data.allowed_groups.map((g) => <Badge key={g} variant="info">{g}</Badge>)}
+            </div>
+          )}
+          <pre className="text-xs text-white/80 bg-black/30 rounded-xl p-4 overflow-auto max-h-[50vh] whitespace-pre">
+            {view === 'config' ? data.config : data.compose}
+          </pre>
+          <p className="text-xs text-white/40 mt-2">{data.note}</p>
+        </div>
+      )}
     </Card>
   )
 }

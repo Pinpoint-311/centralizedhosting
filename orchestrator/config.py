@@ -50,11 +50,68 @@ class Settings(BaseSettings):
     key_provider: str = "local"
     panel_kek_version: int = 1
 
+    # Cloud KMS / HSM envelope encryption (used when KEY_PROVIDER=kms). The panel
+    # data key (DEK) is generated once, wrapped by a KMS/HSM key-encryption key
+    # (KEK), and only the *wrapped* DEK is persisted (WrappedKey table) — the
+    # plaintext DEK never touches disk. KMS_BACKEND selects the wrapping backend:
+    #   "local-hsm" — KEK held in KMS_KEK_MATERIAL (dev/CI/self-host; still real
+    #                 envelope crypto, but the KEK is software-held not in an HSM);
+    #   "gcp"       — Google Cloud KMS/HSM (needs google-cloud-kms);
+    #   "aws"       — AWS KMS/CloudHSM (needs boto3).
+    # KMS_KEY_RESOURCE is the cloud KEK name (GCP resource path / AWS key ARN|id).
+    # Destroying that KEK crypto-shreds every secret wrapped under it.
+    kms_backend: str = "local-hsm"
+    kms_key_resource: str = ""
+    kms_kek_material: str = ""
+
     # Supply chain. When true, provisioning refuses to deploy a release that
     # isn't pinned to an immutable digest (image@sha256:…) — the government
     # posture. Signature verification is a deployment admission control
     # (cosign/Kyverno); documented in GOVERNMENT_PRODUCTION.md.
     require_signed_images: bool = False
+
+    # cosign signature verification. When true (and REQUIRE_SIGNED_IMAGES), the
+    # provisioner runs `cosign verify` on each pinned image digest before deploy
+    # and fails the run if a signature is missing/invalid. Keyless (Fulcio/Rekor)
+    # matches COSIGN_IDENTITY (regex) + COSIGN_ISSUER; key-based uses COSIGN_KEY.
+    cosign_verify: bool = False
+    cosign_identity: str = ""
+    cosign_issuer: str = ""
+    cosign_key: str = ""
+    cosign_binary: str = "cosign"
+
+    # Audit log shipping (WORM + SIEM). Every audit entry is appended to an
+    # append-only WORM journal (NDJSON, one line/entry, carrying the hash chain)
+    # and optionally POSTed to a SIEM collector (ECS-shaped JSON). Both are
+    # best-effort — shipping never blocks or fails an operator action. Point
+    # AUDIT_WORM_PATH at an append-only / object-lock–backed mount.
+    audit_worm_path: str = ""
+    audit_siem_url: str = ""
+    audit_siem_token: str = ""
+
+    # SSL + health alerting. When enabled, alert evaluation probes each active
+    # town's TLS certificate and raises a cert_expiry alert within
+    # CERT_EXPIRY_WARN_DAYS of expiry, plus health alerts from telemetry.
+    ssl_check_enabled: bool = False
+    cert_expiry_warn_days: int = 21
+    ssl_check_timeout_seconds: float = 5.0
+
+    # Point-in-time-recovery backups. When enabled, the town stack turns on
+    # continuous WAL archiving (PITR), and the panel takes periodic base
+    # snapshots and prunes to the retention window. BACKUP_POLL_SECONDS drives
+    # the background base-backup cadence (0 disables the loop).
+    backups_enabled: bool = False
+    backup_root: Path = Path("./backups")
+    backup_poll_seconds: int = 0
+    backup_retention_days: int = 14
+
+    # Edge hardening at Caddy (WAF + rate limiting). WAF_ENABLED emits an OWASP
+    # CRS (Coraza) block and hardened security headers; RATE_LIMIT_RPS/BURST emit
+    # a per-client rate_limit block. Both need a Caddy built with the coraza +
+    # ratelimit modules (xcaddy) — see GOVERNMENT_PRODUCTION.md.
+    waf_enabled: bool = False
+    rate_limit_rps: int = 20
+    rate_limit_burst: int = 40
 
     # Fleet identity
     base_domain: str = "311.example.gov"
