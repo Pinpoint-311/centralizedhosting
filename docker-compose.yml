@@ -32,40 +32,77 @@ services:
       TELEMETRY_POLL_SECONDS: ${TELEMETRY_POLL_SECONDS:-300}
       ALERT_POLL_SECONDS: ${ALERT_POLL_SECONDS:-300}
       # --- Government hardening (all optional; see GOVERNMENT_PRODUCTION.md) ---
-      # KMS/HSM envelope encryption of the panel data key.
-      KEY_PROVIDER: ${KEY_PROVIDER:-local}
-      KMS_BACKEND: ${KMS_BACKEND:-local-hsm}
-      KMS_KEY_RESOURCE: ${KMS_KEY_RESOURCE:-}
-      KMS_KEK_MATERIAL: ${KMS_KEK_MATERIAL:-}
+      # KMS envelope encryption of secrets at rest — SAME vars as the app.
+      KMS_PROVIDER: ${KMS_PROVIDER:-google}
+      REQUIRE_KMS: ${REQUIRE_KMS:-}
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
+      KMS_LOCATION: ${KMS_LOCATION:-}
+      KMS_KEY_RING: ${KMS_KEY_RING:-}
+      KMS_KEY_ID: ${KMS_KEY_ID:-}
+      GCP_SERVICE_ACCOUNT_JSON: ${GCP_SERVICE_ACCOUNT_JSON:-}
+      AWS_KMS_KEY_ID: ${AWS_KMS_KEY_ID:-}
+      AWS_REGION: ${AWS_REGION:-}
+      AZURE_KEYVAULT_URL: ${AZURE_KEYVAULT_URL:-}
+      AZURE_KEYVAULT_KEY: ${AZURE_KEYVAULT_KEY:-}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_KEYVAULT_CLIENT_ID: ${AZURE_KEYVAULT_CLIENT_ID:-}
+      AZURE_KEYVAULT_CLIENT_SECRET: ${AZURE_KEYVAULT_CLIENT_SECRET:-}
       # Supply chain: refuse unpinned images + cosign-verify signatures.
       REQUIRE_SIGNED_IMAGES: ${REQUIRE_SIGNED_IMAGES:-false}
       COSIGN_VERIFY: ${COSIGN_VERIFY:-false}
       COSIGN_IDENTITY: ${COSIGN_IDENTITY:-}
       COSIGN_ISSUER: ${COSIGN_ISSUER:-}
       COSIGN_KEY: ${COSIGN_KEY:-}
-      # Off-host audit shipping (WORM journal + SIEM).
+      # Error monitoring + API rate limiting — SAME as the app.
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-500}
+      # Off-host audit shipping (WORM journal + SIEM) — panel extra on top of the
+      # app-uniform hash chain + [AUDIT ANCHOR] stdout anchoring.
       AUDIT_WORM_PATH: ${AUDIT_WORM_PATH:-}
       AUDIT_SIEM_URL: ${AUDIT_SIEM_URL:-}
       AUDIT_SIEM_TOKEN: ${AUDIT_SIEM_TOKEN:-}
       # TLS cert-expiry + health alerting.
       SSL_CHECK_ENABLED: ${SSL_CHECK_ENABLED:-false}
       CERT_EXPIRY_WARN_DAYS: ${CERT_EXPIRY_WARN_DAYS:-21}
-      # PITR backups (WAL archiving in town stacks + periodic base snapshots).
+      # Town database backups — SAME method + env vars as the app
+      # (pg_dump -Fc | gpg AES256 → S3).
       BACKUPS_ENABLED: ${BACKUPS_ENABLED:-false}
       BACKUP_POLL_SECONDS: ${BACKUP_POLL_SECONDS:-0}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
-      BACKUP_ROOT: /backups
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_S3_ACCESS_KEY: ${BACKUP_S3_ACCESS_KEY:-}
+      BACKUP_S3_SECRET_KEY: ${BACKUP_S3_SECRET_KEY:-}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      BACKUP_S3_REGION: ${BACKUP_S3_REGION:-us-ashburn-1}
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-}
       # Edge WAF + rate limiting in rendered town Caddy sites.
       WAF_ENABLED: ${WAF_ENABLED:-false}
       RATE_LIMIT_RPS: ${RATE_LIMIT_RPS:-20}
       RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-40}
+      # Operator SSO — SAME provider catalog + env vars as the app. Pick one
+      # provider and set its credentials; the panel derives the issuer exactly
+      # as the app does. Group→role mapping reuses ROLE_GROUP_MAP below.
+      IDENTITY_PROVIDER: ${IDENTITY_PROVIDER:-}
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN:-}
+      AUTH0_CLIENT_ID: ${AUTH0_CLIENT_ID:-}
+      AUTH0_CLIENT_SECRET: ${AUTH0_CLIENT_SECRET:-}
+      ENTRA_TENANT_ID: ${ENTRA_TENANT_ID:-}
+      ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID:-}
+      ENTRA_CLIENT_SECRET: ${ENTRA_CLIENT_SECRET:-}
+      ENTRA_AUTHORITY: ${ENTRA_AUTHORITY:-}
+      OKTA_ISSUER: ${OKTA_ISSUER:-}
+      OKTA_CLIENT_ID: ${OKTA_CLIENT_ID:-}
+      OKTA_CLIENT_SECRET: ${OKTA_CLIENT_SECRET:-}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
       # Trust the SSO sidecar's identity/group headers (see oauth2-proxy below).
       OPERATOR_HEADER: ${OPERATOR_HEADER:-}
       ROLES_HEADER: ${ROLES_HEADER:-}
       ROLE_GROUP_MAP: ${ROLE_GROUP_MAP:-}
     volumes:
       - ${TENANT_ROOT_HOST:-./tenants}:/tenants
-      - ${BACKUP_ROOT_HOST:-./backups}:/backups
       # Only needed with APPLY_STACKS=true — the panel is the ONE trusted
       # component allowed to drive Docker on the managed host (the towns
       # themselves never get the socket; see ORCHESTRATOR_PLAN.md A2).

@@ -42,6 +42,7 @@ def take_backup(tenant_id: str, db: Session = Depends(get_db), actor: str = Depe
 def list_backups(tenant_id: str, db: Session = Depends(get_db), _: str = Depends(require_panel_token)):
     _tenant(db, tenant_id)
     return {
-        "pitr_enabled": settings.backups_enabled,
+        "backups_enabled": settings.backups_enabled,
+        "s3_configured": backups.s3_configured(),
         "backups": [_serialize(r) for r in backups.list_backups(db, tenant_id)],
     }

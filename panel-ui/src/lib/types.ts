@@ -163,7 +163,8 @@ export interface WhoAmI {
   actor: string
   role: Role
   auth_method?: 'sso' | 'token'
-  key_provider: string
+  kms_provider: string
+  kms_backend: string
   require_signed_images: boolean
 }
 

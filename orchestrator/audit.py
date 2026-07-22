@@ -95,3 +95,25 @@ def verify_chain(db: Session) -> dict:
 
 def count(db: Session) -> int:
     return db.execute(select(func.count(AuditLog.id))).scalar_one()
+
+
+def anchor_chain(db: Session) -> dict:
+    """Record a tamper-anchor of the current chain head + count (uniform with
+    the app's daily anchor). Persists an AuditAnchor row and emits the head to
+    stdout as ``[AUDIT ANCHOR] head=… count=…`` so external log aggregation
+    captures it off-host — the head living outside the mutable DB is what makes
+    a later DB rewrite detectable."""
+    import logging
+
+    from orchestrator.models import AuditAnchor
+
+    last = db.execute(
+        select(AuditLog).order_by(AuditLog.seq.desc()).limit(1)
+    ).scalar_one_or_none()
+    head = last.entry_hash if last else "GENESIS"
+    n = count(db)
+
+    db.add(AuditAnchor(head=head, count=n))
+    db.flush()
+    logging.getLogger("orchestrator.audit").info("[AUDIT ANCHOR] head=%s count=%s", head, n)
+    return {"head": head, "count": n}

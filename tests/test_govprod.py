@@ -103,20 +103,19 @@ def test_audit_entries_are_chained(client, db):
 
 # ---- Key rotation -----------------------------------------------------------
 
-def test_key_rotation_reencrypts_and_still_decrypts(client, db, monkeypatch):
+def test_key_rotation_reencrypts_and_still_decrypts(client, db):
     tenant = make_tenant(client, slug="rotate")
     client.put(
         f"/api/tenants/{tenant['id']}/secrets/GOOGLE_MAPS_API_KEY",
         json={"value": "AIza-rotate-me"},
         headers=HEADERS,
     )
-    # rotate: bump the active key version, then re-encrypt
-    monkeypatch.setattr(settings, "panel_kek_version", 2)
+    # Rotation re-encrypts every stored secret under a freshly-wrapped data key.
     r = client.post("/api/maintenance/reencrypt-secrets", headers=HEADERS)
     assert r.status_code == 200
-    assert r.json()["key_version"] == 2
+    assert r.json()["kms_backend"] == "local"  # no cloud KMS configured in tests
 
-    # the stored ciphertext is now v2-tagged and still decrypts to the original
+    # the stored ciphertext is the app-uniform envelope scheme and still decrypts
     from orchestrator.models import PlatformSecret
     from orchestrator.security import decrypt_value
     from sqlalchemy import select
@@ -124,7 +123,7 @@ def test_key_rotation_reencrypts_and_still_decrypts(client, db, monkeypatch):
     row = db.execute(
         select(PlatformSecret).where(PlatformSecret.key_name == "GOOGLE_MAPS_API_KEY")
     ).scalar_one()
-    assert row.encrypted_value.startswith("v2:")
+    assert row.encrypted_value.startswith("pii2:")
     assert decrypt_value(row.encrypted_value) == "AIza-rotate-me"
 
 

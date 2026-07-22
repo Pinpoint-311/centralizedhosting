@@ -32,7 +32,7 @@ export function Settings() {
     setBusy('rotate')
     try {
       const r = await api.reencryptSecrets()
-      toast.push(`Re-encrypted ${r.reencrypted} secret(s) with key v${r.key_version}`)
+      toast.push(`Re-encrypted ${r.reencrypted} secret(s) (KMS: ${r.kms_backend})`)
     } catch (e) {
       toast.push((e as Error).message, 'error')
     } finally {
@@ -75,8 +75,16 @@ export function Settings() {
               </div>
             </div>
             <div>
-              <div className="text-xs text-white/40 uppercase tracking-wide mb-1">Secret key provider</div>
-              <div className="text-white">{who?.key_provider || '—'} {who?.require_signed_images && <Badge variant="success">signed images required</Badge>}</div>
+              <div className="text-xs text-white/40 uppercase tracking-wide mb-1">Secret encryption (KMS)</div>
+              <div className="text-white flex items-center gap-2">
+                {who?.kms_provider || '—'}
+                {who?.kms_backend && (
+                  <Badge variant={who.kms_backend === 'local' ? 'warning' : 'success'}>
+                    {who.kms_backend === 'local' ? 'local key' : `${who.kms_backend} KMS`}
+                  </Badge>
+                )}
+                {who?.require_signed_images && <Badge variant="success">signed images required</Badge>}
+              </div>
             </div>
           </div>
           <div className="flex flex-wrap gap-2 mt-4">

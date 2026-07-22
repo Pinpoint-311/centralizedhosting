@@ -135,29 +135,56 @@ require_admin = require_role("admin")
 
 
 # ------------------------------------------------------- secrets at-rest crypto
+# Uniform with the Pinpoint 311 app: brokered/shared secrets are envelope-
+# encrypted (AES-256-GCM DEK wrapped by the configured KMS — Google/AWS/Azure —
+# or a PANEL_SECRET_KEY-derived key), producing a self-describing ``pii2:``
+# token. See orchestrator/pii_crypto.py and orchestrator/encryption.py.
+
+import re as _re
+
+_LEGACY_VERSIONED = _re.compile(r"^v(\d+):(.+)$", _re.DOTALL)
+
 
 def encrypt_value(plaintext: str) -> str:
-    """Encrypt with the active key version; ciphertext is version-tagged
-    (``v<n>:<token>``) so rotation can decrypt older values."""
-    from orchestrator import key_provider
+    """Envelope-encrypt a secret at rest. Returns a ``pii2:`` token. Fails
+    closed to the local key only when REQUIRE_KMS is not set."""
+    from orchestrator import encryption, pii_crypto
 
-    version = settings.panel_kek_version
-    token = key_provider.for_version(version).encrypt(plaintext.encode()).decode()
-    return f"v{version}:{token}"
+    try:
+        return pii_crypto.encrypt(plaintext)
+    except Exception:
+        if encryption._kms_required():
+            raise  # never silently downgrade when a real KMS is mandated
+        return encryption.encrypt(plaintext)  # Fernet fallback (gAAAA…)
 
 
 def decrypt_value(ciphertext: str) -> str:
-    from orchestrator import key_provider
+    """Decrypt a value written by any scheme the panel has used: the current
+    ``pii2:`` envelope, legacy Azure per-field (``akv:``), the panel's earlier
+    versioned Fernet (``v<n>:``), or plain Fernet (``gAAAA…``)."""
+    from orchestrator import encryption, pii_crypto
 
-    if ciphertext.startswith("v") and ":" in ciphertext:
-        tag, token = ciphertext.split(":", 1)
-        try:
-            version = int(tag[1:])
-        except ValueError:
-            version, token = 1, ciphertext  # not a version tag after all
-    else:
-        version, token = 1, ciphertext  # legacy, pre-rotation ciphertext
-    return key_provider.for_version(version).decrypt(token.encode()).decode()
+    if ciphertext.startswith(pii_crypto.PII_V2_PREFIX):
+        return pii_crypto.decrypt(ciphertext)
+    if ciphertext.startswith(encryption.AZURE_ENCRYPTED_PREFIX):
+        from orchestrator import azure_keyvault
+
+        return azure_keyvault.decrypt(ciphertext[len(encryption.AZURE_ENCRYPTED_PREFIX):])
+    m = _LEGACY_VERSIONED.match(ciphertext)
+    if m:
+        # Panel's pre-uniformity versioned-Fernet secrets (v1 == sha256 of
+        # PANEL_SECRET_KEY; later versions mixed the version into the material).
+        import base64 as _b64
+        import hashlib as _hl
+
+        from cryptography.fernet import Fernet
+
+        version, token = int(m.group(1)), m.group(2)
+        material = (settings.panel_secret_key if version <= 1
+                    else f"{settings.panel_secret_key}:v{version}").encode()
+        fernet = Fernet(_b64.urlsafe_b64encode(_hl.sha256(material).digest()))
+        return fernet.decrypt(token.encode()).decode()
+    return encryption.decrypt(ciphertext)  # plain Fernet
 
 
 def generate_secret(nbytes: int = 32) -> str:

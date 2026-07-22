@@ -91,10 +91,15 @@ def set_state_credential(db: Session, key: str, value: str) -> None:
 
 
 def reencrypt_all_secrets(db: Session) -> int:
-    """Re-encrypt every stored secret with the currently-active key version.
-    Run after bumping PANEL_KEK_VERSION to complete a key rotation. Idempotent
-    and safe to re-run. Returns the number of rows rewritten."""
+    """Re-encrypt every stored secret under the current key. Run after rotating
+    the cloud KMS key (or switching KMS provider) to migrate all ciphertext to a
+    freshly-wrapped data key and away from any legacy scheme. Idempotent and safe
+    to re-run. Returns the number of rows rewritten."""
+    from orchestrator import pii_crypto
     from orchestrator.models import PlatformSecret, StateCredential
+
+    # Drop the cached DEK so the re-encrypt wraps a fresh one under the current key.
+    pii_crypto.clear_caches()
 
     n = 0
     for row in db.execute(select(PlatformSecret)).scalars().all():

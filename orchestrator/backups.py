@@ -1,24 +1,25 @@
-"""Point-in-time-recovery (PITR) backups for town databases.
+"""Town database backups — uniform with the Pinpoint 311 app's backup_service.
 
-Two layers give true PITR:
+Same method and same env-var setup as the app:
 
-1. **Continuous WAL archiving** — enabled in the town's Postgres stack when
-   ``BACKUPS_ENABLED`` (see the ``pitr`` block in the compose template). Every
-   committed WAL segment is archived to the town's ``/backups`` volume, so the
-   database can be replayed forward to any moment between base snapshots.
-2. **Base snapshots** — the panel periodically takes a consistent base backup
-   (``pg_basebackup``) of each active town and prunes to the retention window.
-   This module is that catalog + driver; ``BackupRecord`` rows track each
-   artifact's location, size, and status.
+  ``pg_dump -Fc`` (custom format)  →  ``gpg --symmetric --cipher-algo AES256``
+  (passphrase = ``BACKUP_ENCRYPTION_KEY``)  →  upload to S3-compatible storage.
 
-When ``APPLY_STACKS`` is false (dev/CI, no Docker), a base backup is *recorded
-as planned* rather than executed — the same seam pattern the provisioner uses —
-so the control-plane logic and API are fully exercised without real infra.
+Configuration uses the SAME names as the app:
+  BACKUP_S3_BUCKET, BACKUP_S3_ACCESS_KEY, BACKUP_S3_SECRET_KEY,
+  BACKUP_ENCRYPTION_KEY (required); BACKUP_S3_ENDPOINT, BACKUP_S3_REGION
+  (default us-ashburn-1), BACKUP_PREFIX ("db_backup_"), BACKUP_EXTENSION
+  (".sql.gpg"). Restore mirrors the app: gpg --decrypt | pg_restore --clean.
+
+In managed hosting the app's own backups are disabled (the state runs DR), so
+the panel takes them for every town. When APPLY_STACKS is false (dev/CI) or S3
+isn't configured, a backup is recorded as ``planned`` rather than executed —
+the same seam the provisioner uses — so the control plane is fully testable.
 """
 
 import logging
+import os
 import subprocess
-from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -29,55 +30,94 @@ from orchestrator.models import BackupRecord, Tenant, TenantStatus, utcnow
 
 logger = logging.getLogger(__name__)
 
+BACKUP_PREFIX = os.getenv("BACKUP_PREFIX", "db_backup_")
+BACKUP_EXTENSION = os.getenv("BACKUP_EXTENSION", ".sql.gpg")
 
-def tenant_backup_dir(tenant: Tenant) -> Path:
-    return settings.backup_root / tenant.slug
+
+def _cfg(key: str, default: str | None = None) -> str | None:
+    return os.getenv(key, default)
+
+
+def s3_configured() -> bool:
+    return bool(
+        _cfg("BACKUP_S3_BUCKET")
+        and _cfg("BACKUP_S3_ACCESS_KEY")
+        and _cfg("BACKUP_S3_SECRET_KEY")
+        and _cfg("BACKUP_ENCRYPTION_KEY")
+    )
 
 
 def _timestamp() -> str:
-    return utcnow().strftime("%Y%m%dT%H%M%SZ")
+    return utcnow().strftime("%Y%m%d_%H%M%S")
 
 
-def _run_base_backup(tenant: Tenant, dest: Path) -> int:
-    """`pg_basebackup` the town's DB container to a gzipped tar; return bytes
-    written. Only reached when APPLY_STACKS=true."""
-    dest.parent.mkdir(parents=True, exist_ok=True)
+def _object_key(tenant: Tenant, ts: str) -> str:
+    return f"{BACKUP_PREFIX}{tenant.slug}_{ts}{BACKUP_EXTENSION}"
+
+
+def _s3_client():
+    import boto3
+
+    kwargs = {
+        "aws_access_key_id": _cfg("BACKUP_S3_ACCESS_KEY"),
+        "aws_secret_access_key": _cfg("BACKUP_S3_SECRET_KEY"),
+        "region_name": _cfg("BACKUP_S3_REGION", "us-ashburn-1"),
+    }
+    endpoint = _cfg("BACKUP_S3_ENDPOINT")
+    if endpoint:
+        kwargs["endpoint_url"] = endpoint
+    return boto3.client("s3", **kwargs)
+
+
+def _dump_encrypt_upload(tenant: Tenant, key: str) -> int:
+    """pg_dump -Fc the town DB → gpg AES256 → S3. Returns bytes uploaded. Only
+    reached when APPLY_STACKS is true and S3 is configured."""
     container = f"pp311-{tenant.slug}-db-1"
     db_user = f"pp311_{tenant.slug}".replace("-", "_")[:63]
-    with dest.open("wb") as fh:
-        result = subprocess.run(
-            ["docker", "exec", container, "pg_basebackup",
-             "-U", db_user, "-D", "-", "-Ft", "-z", "-X", "fetch"],
-            stdout=fh, stderr=subprocess.PIPE, timeout=1800,
-        )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"pg_basebackup failed for {tenant.slug}: {result.stderr.decode()[-1000:]}"
-        )
-    return dest.stat().st_size if dest.exists() else 0
+    db_name = tenant.db_name or db_user
+
+    dump = subprocess.run(
+        ["docker", "exec", container, "pg_dump", "-Fc", "-U", db_user, db_name],
+        capture_output=True, timeout=1800,
+    )
+    if dump.returncode != 0:
+        raise RuntimeError(f"pg_dump failed for {tenant.slug}: {dump.stderr.decode()[-800:]}")
+
+    enc = subprocess.run(
+        ["gpg", "--batch", "--yes", "--symmetric", "--cipher-algo", "AES256",
+         "--passphrase", _cfg("BACKUP_ENCRYPTION_KEY"), "-o", "-"],
+        input=dump.stdout, capture_output=True, timeout=600,
+    )
+    if enc.returncode != 0:
+        raise RuntimeError(f"gpg encrypt failed for {tenant.slug}: {enc.stderr.decode()[-800:]}")
+
+    _s3_client().put_object(Bucket=_cfg("BACKUP_S3_BUCKET"), Key=key, Body=enc.stdout)
+    return len(enc.stdout)
 
 
 def run_base_backup(db: Session, tenant: Tenant, actor: str = "auto-backup") -> BackupRecord:
-    """Take (or, without apply, plan) one base snapshot and catalog it."""
+    """Take (or, without infra/S3, plan) one encrypted backup and catalog it."""
     ts = _timestamp()
-    dest = tenant_backup_dir(tenant) / f"base-{ts}.tar.gz"
-    rec = BackupRecord(tenant_id=tenant.id, kind="base", path=str(dest))
+    key = _object_key(tenant, ts)
+    bucket = _cfg("BACKUP_S3_BUCKET") or "(unconfigured)"
+    rec = BackupRecord(tenant_id=tenant.id, kind="dump", path=f"s3://{bucket}/{key}")
 
-    if not settings.apply_stacks:
+    if not settings.apply_stacks or not s3_configured():
         rec.status = "planned"
-        rec.detail = "APPLY_STACKS=false — base snapshot recorded as intent only"
+        why = "APPLY_STACKS=false" if not settings.apply_stacks else "BACKUP_S3_* not configured"
+        rec.detail = f"{why} — pg_dump+gpg+S3 backup recorded as intent only"
     else:
         try:
-            rec.size_bytes = _run_base_backup(tenant, dest)
+            rec.size_bytes = _dump_encrypt_upload(tenant, key)
             rec.status = "completed"
-            rec.detail = "pg_basebackup (tar.gz, WAL fetched) — PITR base"
+            rec.detail = "pg_dump -Fc | gpg AES256 → S3"
         except Exception as exc:  # noqa: BLE001
             rec.status = "failed"
             rec.detail = str(exc)[:1000]
-            logger.exception("base backup failed for %s", tenant.slug)
+            logger.exception("backup failed for %s", tenant.slug)
 
     db.add(rec)
-    audit.record(db, actor, "tenant.backup", tenant.id, kind="base", status=rec.status)
+    audit.record(db, actor, "tenant.backup", tenant.id, kind="dump", status=rec.status)
     pruned = prune_old(db, tenant)
     db.commit()
     if pruned:
@@ -86,8 +126,8 @@ def run_base_backup(db: Session, tenant: Tenant, actor: str = "auto-backup") -> 
 
 
 def prune_old(db: Session, tenant: Tenant) -> int:
-    """Delete catalog rows (and their files) older than the retention window,
-    always keeping the most recent completed snapshot."""
+    """Delete catalog rows (and their S3 objects) older than the retention
+    window, always keeping the most recent completed backup."""
     cutoff = utcnow().timestamp() - settings.backup_retention_days * 86400
     rows = db.execute(
         select(BackupRecord)
@@ -95,17 +135,28 @@ def prune_old(db: Session, tenant: Tenant) -> int:
         .order_by(BackupRecord.created_at.desc())
     ).scalars().all()
 
+    client = None
+    if settings.apply_stacks and s3_configured():
+        try:
+            client = _s3_client()
+        except Exception:  # noqa: BLE001
+            client = None
+
     kept_latest = False
     removed = 0
     for row in rows:
-        # Always keep the newest completed snapshot regardless of age.
         if not kept_latest and row.status == "completed":
             kept_latest = True
             continue
         if row.created_at.timestamp() >= cutoff:
             continue
-        if row.path:
-            Path(row.path).unlink(missing_ok=True)
+        if client and row.status == "completed" and row.path and row.path.startswith("s3://"):
+            try:
+                _, _, rest = row.path.partition("s3://")
+                bucket, _, obj = rest.partition("/")
+                client.delete_object(Bucket=bucket, Key=obj)
+            except Exception:  # noqa: BLE001
+                logger.warning("could not delete S3 object %s", row.path)
         db.delete(row)
         removed += 1
     return removed
@@ -121,7 +172,7 @@ def list_backups(db: Session, tenant_id: str) -> list[BackupRecord]:
 
 
 def backup_all(db: Session, actor: str = "auto-backup") -> dict:
-    """Base-backup every active town (background loop entrypoint)."""
+    """Back up every active town (background loop entrypoint)."""
     tenants = db.execute(
         select(Tenant).where(Tenant.status == TenantStatus.ACTIVE)
     ).scalars().all()
