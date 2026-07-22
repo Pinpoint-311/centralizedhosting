@@ -60,11 +60,18 @@ def poll_all_telemetry(db: Session, actor: str = "auto-poller") -> dict:
         polled += 1
     audit.record(db, actor, "fleet.telemetry_refreshed", None, polled=polled, reachable=reachable)
     db.commit()
+    # Keep the snapshot table small so continuous polling doesn't grow memory/disk.
+    from orchestrator.config import settings as _settings
+    from orchestrator.queries import prune_old_snapshots
+
+    pruned = prune_old_snapshots(db, _settings.telemetry_retention_days)
+    if pruned:
+        db.commit()
     # Fresh telemetry → re-evaluate alert conditions (down, drift, …).
     from orchestrator import insights
 
     new_alerts = len(insights.evaluate_alerts(db))
-    return {"polled": polled, "reachable": reachable, "new_alerts": new_alerts}
+    return {"polled": polled, "reachable": reachable, "new_alerts": new_alerts, "pruned": pruned}
 
 
 @router.post("/refresh")
