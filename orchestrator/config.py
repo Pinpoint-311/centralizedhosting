@@ -96,6 +96,10 @@ class Settings(BaseSettings):
     # manual "Poll telemetry" button. 0 disables (default, so dev/demo/tests
     # don't overwrite seeded data); production sets e.g. 300 via env.
     telemetry_poll_seconds: int = 0
+    # Telemetry snapshots older than this are pruned after each poll (each
+    # tenant's latest is always kept) so the table — and every scan over it —
+    # stays small under continuous polling. 0 disables pruning.
+    telemetry_retention_days: int = 30
 
     # Public self-service hosting-request intake. Off by default (adds an
     # unauthenticated endpoint); enable only behind rate-limiting/CAPTCHA.
