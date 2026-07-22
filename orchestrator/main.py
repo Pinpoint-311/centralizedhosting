@@ -14,6 +14,7 @@ from orchestrator.api import (
     fleet,
     gis,
     insights_api,
+    offload,
     keys,
     managed_api,
     releases,
@@ -96,6 +97,7 @@ def create_app() -> FastAPI:
     app.include_router(fleet.router)
     app.include_router(gis.router)
     app.include_router(auth_sso.router)
+    app.include_router(offload.router)
     app.include_router(audit_api.router)
     app.include_router(admin.router)
     app.include_router(insights_api.router)

@@ -31,4 +31,4 @@ build-backend = "setuptools.build_meta"
 packages = ["orchestrator", "orchestrator.api"]
 
 [tool.setuptools.package-data]
-orchestrator = ["templates/*.j2", "static/*.html"]
+orchestrator = ["templates/*.j2", "templates/**/*.j2", "static/*.html"]
