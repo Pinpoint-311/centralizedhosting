@@ -89,6 +89,15 @@ export const api = {
   provision: (id: string) => req<ProvisionJob>('POST', `/api/tenants/${id}/provision`),
   setupCredential: (id: string) =>
     req<{ setup_url: string; initial_admin_password: string; note: string }>('GET', `/api/tenants/${id}/setup-credential`),
+
+  // offload / self-hosting migration
+  startOffload: (id: string) =>
+    req<{ status: string; includes_data: boolean; bundle: string[]; download_path: string; archive_bytes: number }>('POST', `/api/tenants/${id}/offload`),
+  offloadPreview: (id: string) =>
+    req<{ compose: string; env: string; runbook: string }>('GET', `/api/tenants/${id}/offload/preview`),
+  offloadComplete: (id: string) => req<{ status: string }>('POST', `/api/tenants/${id}/offload/complete`),
+  offloadCancel: (id: string) => req<{ status: string }>('POST', `/api/tenants/${id}/offload/cancel`),
+  offloadBundleUrl: (id: string) => `/api/tenants/${id}/offload/bundle`,
   listJobs: (id: string) => req<ProvisionJob[]>('GET', `/api/tenants/${id}/jobs`),
   suspend: (id: string) => req<Tenant>('POST', `/api/tenants/${id}/suspend`),
   resume: (id: string) => req<Tenant>('POST', `/api/tenants/${id}/resume`),

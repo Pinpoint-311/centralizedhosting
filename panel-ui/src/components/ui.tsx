@@ -240,6 +240,8 @@ const STATUS_VARIANT: Record<string, BadgeVariant> = {
   provisioning: 'warning',
   suspended: 'warning',
   offline: 'default',
+  migrating: 'warning',
+  migrated: 'info',
   failed: 'danger',
   decommissioned: 'default',
 }
@@ -253,6 +255,8 @@ export const STATUS_COLOR: Record<string, string> = {
   provisioning: '#f59e0b',
   suspended: '#f59e0b',
   offline: '#94a3b8',
+  migrating: '#f59e0b',
+  migrated: '#38bdf8',
   failed: '#ef4444',
   decommissioned: '#6b7280',
 }

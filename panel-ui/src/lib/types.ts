@@ -5,6 +5,8 @@ export type TenantStatus =
   | 'suspended'
   | 'offline'
   | 'failed'
+  | 'migrating'
+  | 'migrated'
   | 'decommissioned'
 
 export interface Tenant {

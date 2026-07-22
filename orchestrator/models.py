@@ -29,6 +29,8 @@ class TenantStatus:
     ACTIVE = "active"
     SUSPENDED = "suspended"      # app up, read-only 503 banner (soft pause)
     OFFLINE = "offline"          # stack stopped; all data/PII/KMS retained
+    MIGRATING = "migrating"      # self-host bundle generated; town cutting over
+    MIGRATED = "migrated"        # town live on its own infra; managed stack retired
     FAILED = "failed"
     DECOMMISSIONED = "decommissioned"  # crypto-shred, irreversible
 

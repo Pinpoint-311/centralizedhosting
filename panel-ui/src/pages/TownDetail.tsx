@@ -23,6 +23,10 @@ import {
   MapPin,
   Search,
   Map as MapIcon,
+  Package,
+  Download,
+  RotateCcw,
+  ServerCog,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { useSession } from '../lib/session'
@@ -121,7 +125,7 @@ export function TownDetail() {
           <Button variant="ghost" onClick={() => setShowPreview(true)} leftIcon={<FileCode2 className="w-4 h-4" />}>
             Preview stack
           </Button>
-          {can('operator') && !['decommissioned', 'offline'].includes(tenant.status) && (
+          {can('operator') && !['decommissioned', 'offline', 'migrating', 'migrated'].includes(tenant.status) && (
             <Button
               onClick={() =>
                 act('provision', () => api.provision(tenant.id), 'Provisioning run complete')
@@ -178,6 +182,27 @@ export function TownDetail() {
         </div>
       )}
 
+      {(tenant.status === 'migrating' || tenant.status === 'migrated') && (
+        <div className="mb-6 flex items-start gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-400/30">
+          <ServerCog className="w-5 h-5 text-amber-300 shrink-0 mt-0.5" />
+          <p className="text-sm text-white/70">
+            {tenant.status === 'migrating' ? (
+              <>
+                This municipality is <b>migrating to self-hosting</b>. A standalone bundle has been
+                generated below. The managed instance is still running — cut DNS over only once the
+                town confirms its own stack is live, then mark the migration complete.
+              </>
+            ) : (
+              <>
+                This municipality has <b>migrated to self-hosting</b> and now runs on its own infra.
+                Its data is retained here read-only until you decommission it. Cancel to bring it
+                back under management.
+              </>
+            )}
+          </p>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="flex gap-1 mb-6 overflow-x-auto border-b border-white/10">
         {tabs.map((t) => (
@@ -202,6 +227,10 @@ export function TownDetail() {
       {tab === 'policy' && <PolicyTab tenant={tenant} />}
       {tab === 'transparency' && <TransparencyTab tenant={tenant} />}
       {tab === 'provisioning' && <Provisioning tenant={tenant} />}
+
+      {can('approver') && tenant.status !== 'decommissioned' && (
+        <OffloadZone tenant={tenant} onChanged={load} />
+      )}
 
       {can('approver') && tenant.status !== 'decommissioned' && (
         <DangerZone tenant={tenant} onDone={() => navigate('/towns')} />
@@ -822,6 +851,195 @@ function SetupCredential({ tenant }: { tenant: Tenant }) {
         </div>
       )}
     </Card>
+  )
+}
+
+// ------------------------------------------------------- Offload / self-host
+function OffloadZone({ tenant, onChanged }: { tenant: Tenant; onChanged: () => void }) {
+  const toast = useToast()
+  const [busy, setBusy] = useState('')
+  const [showPreview, setShowPreview] = useState(false)
+  const [manifest, setManifest] = useState<{
+    includes_data: boolean
+    bundle: string[]
+    archive_bytes: number
+  } | null>(null)
+
+  const migrating = tenant.status === 'migrating'
+  const migrated = tenant.status === 'migrated'
+  // A bundle exists on disk once an offload has been started (migrating/migrated).
+  const hasBundle = migrating || migrated
+
+  async function generate() {
+    setBusy('generate')
+    try {
+      const r = await api.startOffload(tenant.id)
+      setManifest({ includes_data: r.includes_data, bundle: r.bundle, archive_bytes: r.archive_bytes })
+      toast.push('Self-host bundle generated')
+      onChanged()
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function complete() {
+    setBusy('complete')
+    try {
+      await api.offloadComplete(tenant.id)
+      toast.push('Migration marked complete — town is self-hosted')
+      onChanged()
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function cancel() {
+    setBusy('cancel')
+    try {
+      await api.offloadCancel(tenant.id)
+      setManifest(null)
+      toast.push('Migration cancelled — town back under management')
+      onChanged()
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  function download() {
+    // The bundle download is auth'd via the session cookie / token header on a
+    // normal navigation; open it in a new tab so the browser saves the gzip.
+    window.open(api.offloadBundleUrl(tenant.id), '_blank')
+  }
+
+  function fmtBytes(n: number) {
+    if (!n) return '—'
+    if (n < 1024) return `${n} B`
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+    return `${(n / 1024 / 1024).toFixed(1)} MB`
+  }
+
+  return (
+    <>
+      <div className="mt-8 rounded-2xl border border-amber-400/30 bg-amber-500/[0.06] p-6">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div className="flex-1">
+            <h3 className="font-semibold text-amber-100 flex items-center gap-2">
+              <ServerCog className="w-5 h-5" /> Offload to self-hosting
+            </h3>
+            <p className="text-sm text-white/50 mt-1 max-w-2xl">
+              Generate a complete standalone bundle — <code className="text-white/70">docker-compose.yml</code>,{' '}
+              <code className="text-white/70">.env</code> (carrying this town's{' '}
+              <code className="text-white/70">SECRET_KEY</code> so existing encrypted data still
+              decrypts), a Caddyfile, and a migration runbook. The town runs it on its own servers,
+              and no state control plane is baked in. The managed instance keeps running until you
+              confirm the cutover.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <Button variant="ghost" onClick={() => setShowPreview(true)} leftIcon={<Eye className="w-4 h-4" />}>
+              Preview bundle
+            </Button>
+            {!hasBundle && (
+              <Button
+                onClick={generate}
+                isLoading={busy === 'generate'}
+                leftIcon={<Package className="w-4 h-4" />}
+              >
+                Generate bundle
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {hasBundle && (
+          <div className="mt-5 rounded-xl bg-black/20 border border-white/10 p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-white flex items-center gap-2">
+                  <Package className="w-4 h-4 text-amber-300" /> Self-host bundle ready
+                </div>
+                <div className="text-xs text-white/40 mt-0.5">
+                  {(manifest?.bundle || ['docker-compose.yml', '.env', 'Caddyfile', 'MIGRATION_RUNBOOK.md']).join(' · ')}
+                  {manifest?.includes_data && ' · includes data snapshot'}
+                  {manifest?.archive_bytes ? ` · ${fmtBytes(manifest.archive_bytes)}` : ''}
+                </div>
+              </div>
+              <Button variant="secondary" onClick={download} leftIcon={<Download className="w-4 h-4" />}>
+                Download .tar.gz
+              </Button>
+            </div>
+
+            <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-white/10">
+              {migrating && (
+                <Button onClick={complete} isLoading={busy === 'complete'} leftIcon={<Check className="w-4 h-4" />}>
+                  Mark migration complete
+                </Button>
+              )}
+              {migrated && (
+                <div className="flex items-center gap-2 text-sm text-green-300">
+                  <Check className="w-4 h-4" /> Migrated — town is self-hosted. It can now be decommissioned below.
+                </div>
+              )}
+              <Button variant="ghost" onClick={cancel} isLoading={busy === 'cancel'} leftIcon={<RotateCcw className="w-4 h-4" />}>
+                Cancel migration
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {showPreview && <OffloadPreview tenantId={tenant.id} onClose={() => setShowPreview(false)} />}
+    </>
+  )
+}
+
+function OffloadPreview({ tenantId, onClose }: { tenantId: string; onClose: () => void }) {
+  const toast = useToast()
+  const [data, setData] = useState<{ compose: string; env: string; runbook: string } | null>(null)
+  const [view, setView] = useState<'compose' | 'env' | 'runbook'>('compose')
+  useEffect(() => {
+    api.offloadPreview(tenantId).then(setData).catch((e) => toast.push((e as Error).message, 'error'))
+  }, [tenantId])
+  const label: Record<string, string> = {
+    compose: 'docker-compose.yml',
+    env: '.env (masked)',
+    runbook: 'MIGRATION_RUNBOOK.md',
+  }
+  return (
+    <Modal open onClose={onClose} title="Self-host bundle preview" wide>
+      {!data ? (
+        <Spinner />
+      ) : (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="inline-flex rounded-lg bg-white/5 border border-white/10 p-1">
+              {(['compose', 'env', 'runbook'] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setView(v)}
+                  className={`px-3 py-1.5 text-sm rounded-md ${view === v ? 'bg-indigo-500/30 text-white' : 'text-white/60'}`}
+                >
+                  {label[v]}
+                </button>
+              ))}
+            </div>
+            <Badge variant="warning">standalone</Badge>
+          </div>
+          <pre className="text-xs text-white/80 bg-black/30 rounded-xl p-4 overflow-auto max-h-[60vh] whitespace-pre-wrap">
+            {view === 'compose' ? data.compose : view === 'env' ? data.env : data.runbook}
+          </pre>
+          <p className="text-xs text-white/40 mt-2">
+            Secret values are masked in this preview; the generated bundle contains the real values.
+          </p>
+        </div>
+      )}
+    </Modal>
   )
 }
 
