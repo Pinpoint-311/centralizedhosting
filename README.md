@@ -206,17 +206,39 @@ both systems are **set up and operated identically** to the Pinpoint 311 app.
 **Panel-only hardening extras** (the app doesn't have these; opt-in): cosign
 image-signature verification at provision (`COSIGN_VERIFY`), an OWASP-CRS Caddy
 WAF for town sites (`WAF_ENABLED`), an oauth2-proxy MFA sidecar
-(`--profile sso`), and WORM-journal / SIEM audit shipping.
+(`--profile sso`), and WORM-journal / SIEM audit shipping. The WAF and edge
+rate-limit directives need a Caddy built with the Coraza + ratelimit modules:
+
+```bash
+xcaddy build \
+  --with github.com/corazawaf/coraza-caddy/v2 \
+  --with github.com/mholt/caddy-ratelimit
+```
+
+### Restoring a backup
+
+Each town's backup is encrypted under its **own** key, derived from the single
+`BACKUP_ENCRYPTION_KEY` so one town's key never decrypts another's. To restore,
+recover that town's passphrase, then `gpg --decrypt | pg_restore --clean`:
+
+```python
+# run where BACKUP_ENCRYPTION_KEY is available
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+passphrase = HKDF(algorithm=hashes.SHA256(), length=32,
+                  salt=b"pinpoint311-backup-kek",
+                  info=TENANT_ID.encode()).derive(BACKUP_ENCRYPTION_KEY.encode()).hex()
+```
 
 **Fail-closed by default** — every `/api/*` route requires the panel token
 (constant-time compare); no token means no access. Rendered town stacks are
 hosted-hardened: pinned images, `MANAGED_MODE=true`, `REQUIRE_KMS=true`, **no
 Docker socket mount, no watchtower** — upgrades come only from the panel.
 
-`GOVERNMENT_PRODUCTION.md` walks through the full posture control-by-control —
-what's implemented, what's uniform with the app, and which items (cloud KEK
-credentials, the IdP, a private image registry, transport TLS to internal
-services) are deployment wiring to complete before a StateRAMP/FedRAMP-style ATO.
+The table above is the posture summary. The items still owned by the deployment
+before a StateRAMP/FedRAMP-style ATO are the usual wiring — cloud KEK
+credentials, the IdP behind SSO, a private/mirrored image registry, durable
+backup storage, and transport TLS to internal services (panel↔town, panel↔DB).
 
 ### Reporting vulnerabilities
 
@@ -344,7 +366,8 @@ Every value is env-overridable (upper-cased name). Highlights:
 | `SENTRY_DSN` / `AUDIT_WORM_PATH` / `AUDIT_SIEM_URL` | *(empty)* | Error monitoring / off-host audit shipping |
 | `PUBLIC_REQUESTS_ENABLED` | `false` | Enable the unauthenticated `/request` self-service intake |
 
-See `GOVERNMENT_PRODUCTION.md` for the complete list and the production posture.
+Every setting is documented inline in `orchestrator/config.py`; the
+[Security & Governance](#security--governance) table is the production posture.
 
 ## License
 

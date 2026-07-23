@@ -31,7 +31,7 @@ services:
       # status stays current without the manual button (seconds; 0 disables).
       TELEMETRY_POLL_SECONDS: ${TELEMETRY_POLL_SECONDS:-300}
       ALERT_POLL_SECONDS: ${ALERT_POLL_SECONDS:-300}
-      # --- Government hardening (all optional; see GOVERNMENT_PRODUCTION.md) ---
+      # --- Government hardening (all optional; see README → Security & Governance) ---
       # KMS envelope encryption of secrets at rest — SAME vars as the app.
       KMS_PROVIDER: ${KMS_PROVIDER:-google}
       REQUIRE_KMS: ${REQUIRE_KMS:-}
