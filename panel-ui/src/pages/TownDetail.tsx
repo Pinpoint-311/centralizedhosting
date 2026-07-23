@@ -1101,8 +1101,11 @@ function BackupsCard({ tenant }: { tenant: Tenant }) {
           </h3>
           <p className="text-sm text-white/50 max-w-2xl">
             Encrypted database backups — same method as the app: <code className="text-white/70">pg_dump</code>{' '}
-            → GPG (AES-256) → S3, pruned to the retention window. Take one now, or rely on the
-            scheduled cadence. Without S3 configured a backup is recorded as <b>planned</b>.
+            → GPG (AES-256) → S3, pruned to the retention window. Backups are configured{' '}
+            <b>once for the whole fleet</b>, but each town stays <b>isolated</b>: its dump is
+            encrypted with a distinct per-town key and stored under its own prefix, so one town's
+            backup can't decrypt or reach another's. Without S3 configured a backup is recorded as{' '}
+            <b>planned</b>.
           </p>
         </div>
         {can('operator') && (

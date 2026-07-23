@@ -3,13 +3,26 @@
 Same method and same env-var setup as the app:
 
   ``pg_dump -Fc`` (custom format)  →  ``gpg --symmetric --cipher-algo AES256``
-  (passphrase = ``BACKUP_ENCRYPTION_KEY``)  →  upload to S3-compatible storage.
+  →  upload to S3-compatible storage.
 
-Configuration uses the SAME names as the app:
+**Configured once, isolated per town.** One set of env vars (SAME names as the
+app) configures backups for the whole fleet:
   BACKUP_S3_BUCKET, BACKUP_S3_ACCESS_KEY, BACKUP_S3_SECRET_KEY,
   BACKUP_ENCRYPTION_KEY (required); BACKUP_S3_ENDPOINT, BACKUP_S3_REGION
   (default us-ashburn-1), BACKUP_PREFIX ("db_backup_"), BACKUP_EXTENSION
-  (".sql.gpg"). Restore mirrors the app: gpg --decrypt | pg_restore --clean.
+  (".sql.gpg").
+
+But each town is kept isolated, mirroring the platform's per-town silo model:
+
+  * **Per-town encryption key.** The GPG passphrase is derived per tenant via
+    HKDF-SHA256 from BACKUP_ENCRYPTION_KEY with the tenant id as ``info`` — so a
+    town's dump can only be decrypted with *its* derived key, and one town's key
+    never decrypts another's.
+  * **Per-town object namespace.** Objects live under ``<slug>/…`` in the bucket,
+    so a town's backups are a separate prefix you can scope IAM/lifecycle to.
+
+Restore mirrors the app (``gpg --decrypt | pg_restore --clean``), using the
+town's derived passphrase (derivation documented in GOVERNMENT_PRODUCTION.md).
 
 In managed hosting the app's own backups are disabled (the state runs DR), so
 the panel takes them for every town. When APPLY_STACKS is false (dev/CI) or S3
@@ -21,6 +34,8 @@ import logging
 import os
 import subprocess
 
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -32,6 +47,9 @@ logger = logging.getLogger(__name__)
 
 BACKUP_PREFIX = os.getenv("BACKUP_PREFIX", "db_backup_")
 BACKUP_EXTENSION = os.getenv("BACKUP_EXTENSION", ".sql.gpg")
+
+# HKDF salt for deriving per-town backup keys from the master BACKUP_ENCRYPTION_KEY.
+_BACKUP_KEK_SALT = b"pinpoint311-backup-kek"
 
 
 def _cfg(key: str, default: str | None = None) -> str | None:
@@ -47,12 +65,24 @@ def s3_configured() -> bool:
     )
 
 
+def town_passphrase(tenant: Tenant) -> str:
+    """The GPG passphrase for this town's backups — derived per tenant from the
+    single master BACKUP_ENCRYPTION_KEY via HKDF-SHA256(info=tenant.id), so each
+    town's dump is encrypted under its own key and isolated from every other."""
+    master = (_cfg("BACKUP_ENCRYPTION_KEY") or "").encode()
+    hkdf = HKDF(algorithm=hashes.SHA256(), length=32,
+                salt=_BACKUP_KEK_SALT, info=tenant.id.encode())
+    return hkdf.derive(master).hex()
+
+
 def _timestamp() -> str:
     return utcnow().strftime("%Y%m%d_%H%M%S")
 
 
 def _object_key(tenant: Tenant, ts: str) -> str:
-    return f"{BACKUP_PREFIX}{tenant.slug}_{ts}{BACKUP_EXTENSION}"
+    # Per-town prefix so each town's backups are an isolated namespace in the
+    # bucket (scope IAM / lifecycle rules per town).
+    return f"{tenant.slug}/{BACKUP_PREFIX}{tenant.slug}_{ts}{BACKUP_EXTENSION}"
 
 
 def _s3_client():
@@ -85,7 +115,7 @@ def _dump_encrypt_upload(tenant: Tenant, key: str) -> int:
 
     enc = subprocess.run(
         ["gpg", "--batch", "--yes", "--symmetric", "--cipher-algo", "AES256",
-         "--passphrase", _cfg("BACKUP_ENCRYPTION_KEY"), "-o", "-"],
+         "--passphrase", town_passphrase(tenant), "-o", "-"],
         input=dump.stdout, capture_output=True, timeout=600,
     )
     if enc.returncode != 0:

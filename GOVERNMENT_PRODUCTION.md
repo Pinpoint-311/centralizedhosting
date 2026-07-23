@@ -208,11 +208,29 @@ with object-lock storage if used); set retention to your records schedule.**
   DR), so with `BACKUPS_ENABLED` the panel backs up every town on the
   `BACKUP_POLL_SECONDS` cadence, cataloged in `backup_records`, pruned to
   `BACKUP_RETENTION_DAYS` (`POST /api/tenants/{id}/backup`,
-  `GET /api/tenants/{id}/backups`). Configure with the app's names:
-  `BACKUP_S3_BUCKET`, `BACKUP_S3_ACCESS_KEY`, `BACKUP_S3_SECRET_KEY`,
-  `BACKUP_ENCRYPTION_KEY`, `BACKUP_S3_ENDPOINT`, `BACKUP_S3_REGION`. Restore
-  mirrors the app (`gpg --decrypt | pg_restore --clean`). Point the bucket at
-  cross-region durable storage and rehearse a restore before ATO.
+  `GET /api/tenants/{id}/backups`). **Configured once for the whole fleet** with
+  the app's names — `BACKUP_S3_BUCKET`, `BACKUP_S3_ACCESS_KEY`,
+  `BACKUP_S3_SECRET_KEY`, `BACKUP_ENCRYPTION_KEY`, `BACKUP_S3_ENDPOINT`,
+  `BACKUP_S3_REGION` — **but every town stays isolated**, mirroring the silo
+  model: each town's dump is encrypted with a **per-town key derived via
+  HKDF-SHA256(`BACKUP_ENCRYPTION_KEY`, info=`tenant.id`)** and stored under its
+  own `s3://bucket/<slug>/…` prefix, so one town's backup can't decrypt or be
+  confused with another's (and you can scope per-town IAM/lifecycle to the
+  prefix). Restore mirrors the app — recover the town's passphrase, then
+  `gpg --decrypt | pg_restore --clean`:
+
+  ```python
+  # per-town restore passphrase (run where BACKUP_ENCRYPTION_KEY is available)
+  from cryptography.hazmat.primitives import hashes
+  from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+  passphrase = HKDF(algorithm=hashes.SHA256(), length=32,
+                    salt=b"pinpoint311-backup-kek",
+                    info=TENANT_ID.encode()).derive(BACKUP_ENCRYPTION_KEY.encode()).hex()
+  ```
+
+  Point the bucket at cross-region durable storage and rehearse a restore before
+  ATO. (This is a deliberate hardening over the app's single shared passphrase,
+  because the panel holds many tenants' backups in one bucket.)
 
 - **Edge hardening:** the panel's own API carries the app's security-header set
   and **SlowAPI** per-client rate limiting (`RATE_LIMIT_RPM`, default 500/min),

@@ -214,6 +214,26 @@ def test_backup_object_key_uses_app_naming(client, monkeypatch):
     assert lst.status_code == 200
 
 
+def test_backups_are_isolated_per_town(client, db, monkeypatch):
+    """One backup setup (a single BACKUP_ENCRYPTION_KEY), but each town is
+    isolated: its dump is encrypted under a distinct derived key and stored
+    under its own object prefix."""
+    from orchestrator import backups
+    from orchestrator.models import Tenant
+
+    monkeypatch.setenv("BACKUP_ENCRYPTION_KEY", "one-master-key")
+    a = make_tenant(client, slug="iso-a", name="A")
+    b = make_tenant(client, slug="iso-b", name="B")
+    ta, tb = db.get(Tenant, a["id"]), db.get(Tenant, b["id"])
+
+    pa, pb = backups.town_passphrase(ta), backups.town_passphrase(tb)
+    assert pa != pb and len(pa) == 64           # distinct per-town keys from one master
+    assert backups.town_passphrase(ta) == pa    # deterministic (restorable)
+    # Each town's objects live under its own prefix.
+    assert backups._object_key(ta, "T").startswith("iso-a/")
+    assert backups._object_key(tb, "T").startswith("iso-b/")
+
+
 # ---- 5. WAF + rate limiting ------------------------------------------------
 
 def test_waf_and_rate_limit_rendered_in_caddy_site(client, monkeypatch):
