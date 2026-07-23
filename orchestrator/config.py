@@ -16,7 +16,8 @@ class Settings(BaseSettings):
     # authenticates each operator and sets a trusted identity header (e.g.
     # X-Forwarded-User). Name it here and the audit trail records the real
     # operator instead of a generic label. The shared token alone is NOT
-    # sufficient authZ for government production — see GOVERNMENT_PRODUCTION.md.
+    # sufficient authZ for government production — front the panel with SSO
+    # (see IDENTITY_PROVIDER below and the README's Security & Governance).
     operator_header: str = ""
 
     # RBAC. Roles: viewer < operator < approver < admin. The effective role is
@@ -61,8 +62,7 @@ class Settings(BaseSettings):
 
     # Supply chain. When true, provisioning refuses to deploy a release that
     # isn't pinned to an immutable digest (image@sha256:…) — the government
-    # posture. Signature verification is a deployment admission control
-    # (cosign/Kyverno); documented in GOVERNMENT_PRODUCTION.md.
+    # posture. Signature verification is available below via COSIGN_VERIFY.
     require_signed_images: bool = False
 
     # cosign signature verification. When true (and REQUIRE_SIGNED_IMAGES), the
@@ -105,7 +105,7 @@ class Settings(BaseSettings):
     # Edge hardening at Caddy (WAF + rate limiting). WAF_ENABLED emits an OWASP
     # CRS (Coraza) block and hardened security headers; RATE_LIMIT_RPS/BURST emit
     # a per-client rate_limit block. Both need a Caddy built with the coraza +
-    # ratelimit modules (xcaddy) — see GOVERNMENT_PRODUCTION.md.
+    # ratelimit modules (xcaddy build command in the README).
     waf_enabled: bool = False
     rate_limit_rps: int = 20
     rate_limit_burst: int = 40

@@ -22,7 +22,8 @@ But each town is kept isolated, mirroring the platform's per-town silo model:
     so a town's backups are a separate prefix you can scope IAM/lifecycle to.
 
 Restore mirrors the app (``gpg --decrypt | pg_restore --clean``), using the
-town's derived passphrase (derivation documented in GOVERNMENT_PRODUCTION.md).
+town's derived passphrase — see ``town_passphrase`` below (also documented in
+the README's "Restoring a backup").
 
 In managed hosting the app's own backups are disabled (the state runs DR), so
 the panel takes them for every town. When APPLY_STACKS is false (dev/CI) or S3

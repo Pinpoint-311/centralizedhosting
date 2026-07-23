@@ -20,8 +20,8 @@
 {%- if waf_enabled %}
 
 	# OWASP Core Rule Set via Coraza (needs a Caddy built with the coraza-caddy
-	# module — see GOVERNMENT_PRODUCTION.md). Blocks common web attacks before
-	# they reach the app.
+	# module — xcaddy build command in the README's Security & Governance
+	# section). Blocks common web attacks before they reach the app.
 	coraza_waf {
 		load_owasp_crs
 		directives `
