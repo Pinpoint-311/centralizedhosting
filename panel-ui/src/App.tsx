@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { MotionConfig } from 'framer-motion'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { api } from './lib/api'
 import { SessionProvider } from './lib/session'
 import { ToastProvider } from './components/Toast'
@@ -19,8 +19,13 @@ import { Alerts } from './pages/Alerts'
 import { Requests } from './pages/Requests'
 import { Releases } from './pages/Releases'
 import { Audit } from './pages/Audit'
-import { Settings } from './pages/Settings'
 import { PublicRequest } from './pages/PublicRequest'
+import { Branding } from './pages/setup/Branding'
+import { Integration } from './pages/setup/Integration'
+import { Organization } from './pages/setup/Organization'
+import { Users } from './pages/setup/Users'
+import { SystemSettings } from './pages/setup/SystemSettings'
+import { SystemHealth } from './pages/setup/SystemHealth'
 
 const MUNI_TABS: HubTab[] = [
   { to: '/towns', label: 'Directory', subtitle: 'Every municipality you host.' },
@@ -39,6 +44,15 @@ const OPS_TABS: HubTab[] = [
 const GOV_TABS: HubTab[] = [
   { to: '/compliance', label: 'Compliance', subtitle: 'Security and policy posture across the fleet — infrastructure metadata, not resident data.' },
   { to: '/audit', label: 'Audit Log', subtitle: 'Tamper-evident record of every host action.' },
+]
+// The hosting provider's own admin — grouped like the app's admin console.
+const SETUP_TABS: HubTab[] = [
+  { to: '/setup/branding', label: 'Branding', group: 'Branding & Setup', subtitle: 'How this hosting control plane presents itself.' },
+  { to: '/setup/integration', label: 'Setup & Integration', group: 'Branding & Setup', subtitle: 'Single sign-on, the MFA sidecar, and the shared API credentials the platform provides.' },
+  { to: '/setup/organization', label: 'Organization', group: 'Branding & Setup', subtitle: 'Who runs this hosting program — the state, county, university, or agency.' },
+  { to: '/setup/users', label: 'Users', group: 'Branding & Setup', subtitle: 'Operators and the IdP group → role mapping that governs access.' },
+  { to: '/setup/system', label: 'System Settings', group: 'System & Compliance', subtitle: "The control plane's effective operational configuration and maintenance." },
+  { to: '/setup/health', label: 'System Health', group: 'System & Compliance', subtitle: 'Live status of the control plane itself.' },
 ]
 
 export function App() {
@@ -120,7 +134,16 @@ export function App() {
                   <Route path="/audit" element={<Audit />} />
                 </Route>
 
-                <Route path="/settings" element={<Settings />} />
+                <Route element={<HubShell title="Setup" tabs={SETUP_TABS} />}>
+                  <Route path="/setup/branding" element={<Branding />} />
+                  <Route path="/setup/integration" element={<Integration />} />
+                  <Route path="/setup/organization" element={<Organization />} />
+                  <Route path="/setup/users" element={<Users />} />
+                  <Route path="/setup/system" element={<SystemSettings />} />
+                  <Route path="/setup/health" element={<SystemHealth />} />
+                </Route>
+
+                <Route path="/settings" element={<Navigate to="/setup/branding" replace />} />
               </Routes>
             </Shell>
           </BrowserRouter>

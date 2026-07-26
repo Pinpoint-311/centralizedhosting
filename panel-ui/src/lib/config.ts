@@ -4,7 +4,19 @@ let regions: string[] = []
 let publicRequestsEnabled = false
 let mapsApiKey = ''
 let mapsMapId = ''
+let platformName = 'Pinpoint 311'
+let tagline = 'Hosting Control Plane'
+let logoUrl = ''
 
+export function getPlatformName(): string {
+  return platformName
+}
+export function getTagline(): string {
+  return tagline
+}
+export function getLogoUrl(): string {
+  return logoUrl
+}
 export function getBaseDomain(): string {
   return baseDomain
 }
@@ -39,6 +51,9 @@ export async function loadPanelConfig(): Promise<void> {
       publicRequestsEnabled = !!cfg.public_requests_enabled
       if (cfg.maps_api_key) mapsApiKey = cfg.maps_api_key
       if (cfg.maps_map_id) mapsMapId = cfg.maps_map_id
+      if (cfg.platform_name) platformName = cfg.platform_name
+      if (cfg.tagline) tagline = cfg.tagline
+      if (cfg.logo_url) logoUrl = cfg.logo_url
     }
   } catch {
     // keep defaults; the panel still works, hostnames just use the fallback

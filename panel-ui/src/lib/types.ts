@@ -9,6 +9,45 @@ export type TenantStatus =
   | 'migrated'
   | 'decommissioned'
 
+export interface PlatformConfig {
+  platform_name: string
+  tagline: string
+  logo_url: string | null
+  primary_color: string | null
+  support_email: string | null
+  org_legal_name: string | null
+  org_type: string
+  jurisdiction: string | null
+  contact_name: string | null
+  contact_email: string | null
+  contact_phone: string | null
+  address: string | null
+  website: string | null
+}
+
+export interface SystemHealth {
+  version: string
+  checks: Record<string, { ok: boolean; detail: string }>
+  background_loops: Record<string, number>
+  fleet: { total: number; active: number }
+}
+
+export interface SystemConfig {
+  deployment: Record<string, unknown>
+  polling: Record<string, unknown>
+  security: Record<string, unknown>
+  backups: Record<string, unknown>
+  intake: Record<string, unknown>
+}
+
+export interface Operators {
+  operators: { actor: string; actions: number; last_action_at: string | null }[]
+  role_map: Record<string, string>
+  default_role: string
+  sso_enabled: boolean
+  you: { actor: string; role: string }
+}
+
 export interface BackupRecord {
   id: string
   kind: string

@@ -23,6 +23,7 @@ from orchestrator.api import (
     offload,
     keys,
     managed_api,
+    platform,
     releases,
     requests_api,
     secrets,
@@ -181,6 +182,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_sso.router)
     app.include_router(offload.router)
     app.include_router(backups_api.router)
+    app.include_router(platform.router)
     app.include_router(audit_api.router)
     app.include_router(admin.router)
     app.include_router(insights_api.router)
@@ -195,12 +197,19 @@ def create_app() -> FastAPI:
 
     @app.get("/api/panel-config", tags=["meta"])
     def panel_config():
-        """Non-sensitive fleet config for the UI (base domain, mode). No auth —
-        the base domain is public and the SPA needs it before the token gate."""
+        """Non-sensitive fleet config for the UI (base domain, mode, branding).
+        No auth — the SPA needs it before the token gate, and branding shows on
+        the login screen."""
         from orchestrator.config import settings
+        from orchestrator.api.platform import branding
+        from orchestrator.db import SessionLocal
+
+        with SessionLocal() as db:
+            brand = branding(db)
 
         regions = [r.strip() for r in settings.regions.split(",") if r.strip()]
         return {
+            **brand,
             "base_domain": settings.base_domain,
             "backend_image": settings.backend_image,
             "frontend_image": settings.frontend_image,

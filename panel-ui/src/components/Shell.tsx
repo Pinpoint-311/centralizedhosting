@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { api, clearToken } from '../lib/api'
 import { Logo } from './Logo'
+import { getPlatformName, getTagline, getLogoUrl } from '../lib/config'
 
 // Five hubs + Settings. Each hub owns a set of routes (its tabs); the sidebar
 // item is active whenever the current path belongs to the hub.
@@ -32,7 +33,7 @@ const NAV: NavItem[] = [
   { to: '/analytics', label: 'Insights', icon: BarChart3, owns: ['/analytics', '/cost'] },
   { to: '/sla', label: 'Operations', icon: Activity, owns: ['/sla', '/alerts', '/releases'], badge: 'alerts' },
   { to: '/compliance', label: 'Governance', icon: ShieldCheck, owns: ['/compliance', '/audit'] },
-  { to: '/settings', label: 'Settings', icon: Settings, owns: ['/settings'] },
+  { to: '/setup/branding', label: 'Setup', icon: Settings, owns: ['/setup', '/settings'] },
 ]
 
 function isActive(pathname: string, item: NavItem): boolean {
@@ -60,10 +61,14 @@ export function Shell({ children, onLogout }: { children: React.ReactNode; onLog
   const sidebar = (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-3 px-5 py-6">
-        <Logo size={38} />
+        {getLogoUrl() ? (
+          <img src={getLogoUrl()} alt="" className="w-[38px] h-[38px] rounded-xl object-cover" />
+        ) : (
+          <Logo size={38} />
+        )}
         <div>
-          <div className="font-semibold text-white leading-tight">Pinpoint 311</div>
-          <div className="text-xs text-white/50">Hosting Control Plane</div>
+          <div className="font-semibold text-white leading-tight">{getPlatformName()}</div>
+          <div className="text-xs text-white/50">{getTagline()}</div>
         </div>
       </div>
 
@@ -123,8 +128,8 @@ export function Shell({ children, onLogout }: { children: React.ReactNode; onLog
       <div className="flex-1 min-w-0">
         <header className="lg:hidden flex items-center justify-between px-4 py-3 border-b border-white/10 sticky top-0 z-30 bg-[rgba(30,27,75,0.85)] backdrop-blur-xl">
           <div className="flex items-center gap-2">
-            <Logo size={32} />
-            <span className="font-semibold text-white">Pinpoint 311</span>
+            {getLogoUrl() ? <img src={getLogoUrl()} alt="" className="w-8 h-8 rounded-lg object-cover" /> : <Logo size={32} />}
+            <span className="font-semibold text-white">{getPlatformName()}</span>
           </div>
           <button
             onClick={() => setOpen((o) => !o)}
@@ -169,6 +174,9 @@ export interface HubTab {
   to: string
   label: string
   subtitle?: string
+  /** Optional section label — when set, tabs render in labeled groups (the way
+   *  an admin console groups its nav), e.g. "Branding & Setup". */
+  group?: string
 }
 
 // A page's action buttons portal into the hub's tab row (right side) so they
@@ -187,6 +195,27 @@ export function HubShell({ title, tabs }: { title: string; tabs: HubTab[] }) {
   const active =
     tabs.find((t) => location.pathname === t.to || location.pathname.startsWith(t.to + '/')) || tabs[0]
 
+  const pill = (t: HubTab) => {
+    const isActive = location.pathname === t.to || location.pathname.startsWith(t.to + '/')
+    return (
+      <NavLink
+        key={t.to}
+        to={t.to}
+        className={`px-3.5 py-1.5 rounded-lg text-sm transition-colors ${
+          isActive
+            ? 'bg-primary-500/25 text-white font-medium'
+            : 'text-white/55 hover:text-white hover:bg-white/5'
+        }`}
+      >
+        {t.label}
+      </NavLink>
+    )
+  }
+
+  const groups = tabs.some((t) => t.group)
+    ? [...new Set(tabs.map((t) => t.group))]
+    : null
+
   return (
     <div>
       <div className="mb-6">
@@ -194,26 +223,21 @@ export function HubShell({ title, tabs }: { title: string; tabs: HubTab[] }) {
         {active?.subtitle && <p className="text-white/50 mt-1">{active.subtitle}</p>}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        {tabs.length > 1 ? (
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+        {groups ? (
+          <div className="flex flex-wrap gap-x-6 gap-y-3">
+            {groups.map((g) => (
+              <div key={g}>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-white/30 mb-1.5 px-1">{g}</div>
+                <div className="flex flex-wrap gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/10 w-fit">
+                  {tabs.filter((t) => t.group === g).map(pill)}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : tabs.length > 1 ? (
           <div className="flex flex-wrap gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/10 w-fit">
-            {tabs.map((t) => {
-              const isActive =
-                location.pathname === t.to || location.pathname.startsWith(t.to + '/')
-              return (
-                <NavLink
-                  key={t.to}
-                  to={t.to}
-                  className={`px-3.5 py-1.5 rounded-lg text-sm transition-colors ${
-                    isActive
-                      ? 'bg-primary-500/25 text-white font-medium'
-                      : 'text-white/55 hover:text-white hover:bg-white/5'
-                  }`}
-                >
-                  {t.label}
-                </NavLink>
-              )
-            })}
+            {tabs.map(pill)}
           </div>
         ) : (
           <div />

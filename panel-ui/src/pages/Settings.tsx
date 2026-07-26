@@ -140,7 +140,7 @@ export function Settings() {
  * One place to set up API keys: enter each credential the Host provides once
  * (services set to "Host" use it), and see at a glance who provides the rest.
  */
-function ApiKeysHub({
+export function ApiKeysHub({
   catalog,
   creds,
   onChange,
@@ -249,7 +249,7 @@ import { Megaphone, Trash2, Plus } from 'lucide-react'
 import type { Announcement2 } from '../lib/types'
 import { Input, Select } from '../components/ui'
 
-function Announcements() {
+export function Announcements() {
   const toast = useToast()
   const [items, setItems] = useState<Announcement2[]>([])
   const [title, setTitle] = useState('')
@@ -321,7 +321,7 @@ import type { FederationConfig, Role } from '../lib/types'
 
 const PANEL_ROLES: Role[] = ['viewer', 'operator', 'approver', 'admin']
 
-function SsoFederation() {
+export function SsoFederation() {
   const toast = useToast()
   const [cfg, setCfg] = useState<FederationConfig | null>(null)
   const [secret, setSecret] = useState('')
@@ -445,7 +445,7 @@ function SsoFederation() {
 // ------------------------------------------- oauth2-proxy SSO/MFA sidecar
 import { ServerCog, Copy as CopyIcon } from 'lucide-react'
 
-function SsoSidecar() {
+export function SsoSidecar() {
   const toast = useToast()
   const [data, setData] = useState<{ config: string; compose: string; allowed_groups: string[]; note: string } | null>(null)
   const [view, setView] = useState<'config' | 'compose'>('config')

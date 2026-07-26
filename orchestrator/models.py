@@ -368,6 +368,37 @@ class BackupRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
+class PlatformConfig(Base):
+    """Singleton identity for the hosting provider itself — the entity running
+    this control plane (a state, county, city, university, or agency). Branding
+    + organization metadata only; never resident data. Distinct from a Tenant
+    (a hosted municipality)."""
+
+    __tablename__ = "platform_config"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default="default")
+
+    # Branding (how the panel presents itself).
+    platform_name: Mapped[str | None] = mapped_column(String(120), default=None)
+    tagline: Mapped[str | None] = mapped_column(String(160), default=None)
+    logo_url: Mapped[str | None] = mapped_column(Text, default=None)
+    primary_color: Mapped[str | None] = mapped_column(String(9), default=None)  # #RRGGBB
+    support_email: Mapped[str | None] = mapped_column(String(255), default=None)
+
+    # Organization (who the hosting provider is).
+    org_legal_name: Mapped[str | None] = mapped_column(String(255), default=None)
+    org_type: Mapped[str] = mapped_column(String(32), default="agency")  # state|county|city|university|agency|other
+    jurisdiction: Mapped[str | None] = mapped_column(String(160), default=None)
+    contact_name: Mapped[str | None] = mapped_column(String(255), default=None)
+    contact_email: Mapped[str | None] = mapped_column(String(255), default=None)
+    contact_phone: Mapped[str | None] = mapped_column(String(64), default=None)
+    address: Mapped[str | None] = mapped_column(Text, default=None)
+    website: Mapped[str | None] = mapped_column(String(255), default=None)
+
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    updated_by: Mapped[str | None] = mapped_column(String(150), default=None)
+
+
 class AuditAnchor(Base):
     """Periodic tamper-anchor of the audit hash chain — uniform with the app.
 

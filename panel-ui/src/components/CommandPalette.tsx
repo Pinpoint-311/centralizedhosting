@@ -74,7 +74,8 @@ export function CommandPalette() {
     { id: 'p-requests', label: 'Hosting Requests', icon: <Inbox className="w-4 h-4" />, action: () => go('/requests') },
     { id: 'p-releases', label: 'Releases', icon: <Rocket className="w-4 h-4" />, action: () => go('/releases') },
     { id: 'p-audit', label: 'Audit Log', icon: <ScrollText className="w-4 h-4" />, action: () => go('/audit') },
-    { id: 'p-settings', label: 'Settings', icon: <Settings className="w-4 h-4" />, action: () => go('/settings') },
+    { id: 'p-setup', label: 'Setup', icon: <Settings className="w-4 h-4" />, action: () => go('/setup/branding') },
+    { id: 'p-health', label: 'System Health', icon: <Settings className="w-4 h-4" />, action: () => go('/setup/health') },
   ]
 
   const items = useMemo(() => {

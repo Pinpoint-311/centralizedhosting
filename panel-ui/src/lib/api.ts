@@ -14,8 +14,12 @@ import type {
   OsmResult,
   LegalHold,
   ManagedField,
+  Operators,
+  PlatformConfig,
   ProvisionJob,
   PublicStatus,
+  SystemConfig,
+  SystemHealth,
   Release,
   Rollout,
   SecretOut,
@@ -154,6 +158,14 @@ export const api = {
 
   // identity / admin
   whoami: () => req<WhoAmI>('GET', '/api/whoami'),
+
+  // hosting-provider admin (branding, organization, system, operators)
+  getPlatformConfig: () => req<PlatformConfig>('GET', '/api/platform/config'),
+  putPlatformConfig: (body: Partial<PlatformConfig>) =>
+    req<PlatformConfig>('PUT', '/api/platform/config', body),
+  systemHealth: () => req<SystemHealth>('GET', '/api/system/health'),
+  systemConfig: () => req<SystemConfig>('GET', '/api/system/config'),
+  operators: () => req<Operators>('GET', '/api/operators'),
 
   // SSO / federation
   ssoStatus: () => req<{ configured: boolean; provider: string; login_path: string }>('GET', '/api/auth/sso/status'),
