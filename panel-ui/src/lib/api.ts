@@ -173,8 +173,6 @@ export const api = {
   getFederation: () => req<FederationConfig>('GET', '/api/auth/federation'),
   putFederation: (body: Record<string, unknown>) => req<FederationConfig>('PUT', '/api/auth/federation', body),
   testFederation: () => req<{ ok: boolean; authorization_endpoint: string; issuer: string }>('POST', '/api/auth/federation/test'),
-  sidecarConfig: () =>
-    req<{ provider: string; issuer: string; client_id: string; allowed_groups: string[]; config: string; compose: string; note: string }>('GET', '/api/auth/sidecar-config'),
   reencryptSecrets: () => req<{ reencrypted: number; skipped: number; kms_backend: string }>('POST', '/api/maintenance/reencrypt-secrets'),
 
   // insights

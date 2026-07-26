@@ -5,7 +5,7 @@ import type { KeyCatalog, SecretOut } from '../../lib/types'
 import { Spinner } from '../../components/ui'
 import { useToast } from '../../components/Toast'
 import { useSession } from '../../lib/session'
-import { ApiKeysHub, SsoFederation, SsoSidecar } from '../Settings'
+import { ApiKeysHub, SsoFederation } from '../Settings'
 
 export function Integration() {
   const toast = useToast()
@@ -29,13 +29,11 @@ export function Integration() {
           <Terminal className="w-6 h-6" /> Setup &amp; Integration
         </h1>
         <p className="text-white/50 text-sm mt-1">
-          Single sign-on, the MFA sidecar, and the shared API credentials this platform provides to
-          the fleet.
+          Single sign-on and the shared API credentials this platform provides to the fleet.
         </p>
       </div>
 
       {can('admin') && <SsoFederation />}
-      {can('admin') && <SsoSidecar />}
       {!catalog ? <Spinner /> : <ApiKeysHub catalog={catalog} creds={creds} onChange={loadCreds} />}
     </div>
   )

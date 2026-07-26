@@ -205,19 +205,3 @@ def test_federation(db: Session = Depends(get_db), _: str = Depends(require_admi
         raise HTTPException(502, f"Discovery failed: {exc}")
     return {"ok": True, "authorization_endpoint": meta.get("authorization_endpoint"),
             "issuer": meta.get("issuer")}
-
-
-@router.get("/sidecar-config")
-def sidecar_config(db: Session = Depends(get_db), _: str = Depends(require_admin)):
-    """Render the oauth2-proxy SSO+MFA sidecar config (and its compose service)
-    from the current federation settings. The client secret is never emitted —
-    it's referenced as an env var injected from the secret manager."""
-    from orchestrator import sidecar
-
-    # Reflect entered credentials even before SSO is toggled on (you generate the
-    # sidecar config first, then enable). Prefer the DB config when present, else
-    # the env provider catalog.
-    cfg = oidc.get_config(db)
-    eff = (oidc._from_db(cfg) if (cfg and cfg.issuer and cfg.client_id)
-           else oidc.resolve_identity_config())
-    return sidecar.render_config(eff)

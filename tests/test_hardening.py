@@ -1,6 +1,6 @@
 """Government-production hardening round 2: KMS envelope encryption, cosign
 verification, WORM/SIEM audit shipping, PITR backups, WAF + rate limiting,
-SSL/health alerting, and the oauth2-proxy SSO/MFA sidecar."""
+and SSL/health alerting."""
 
 import json
 
@@ -301,31 +301,3 @@ def test_health_alert_from_unhealthy_integration(client, db):
     assert "health" in {a.kind for a in new}
 
 
-# ---- 7. oauth2-proxy SSO/MFA sidecar ---------------------------------------
-
-def test_sidecar_config_rendered_from_federation(client):
-    client.put(
-        "/api/auth/federation",
-        json={
-            "enabled": False,
-            "provider": "oidc",
-            "issuer": "https://login.example.gov",
-            "client_id": "panel-client",
-            "client_secret": "topsecret",
-            "groups_claim": "groups",
-            "group_role_map": {"pp311-admins": "admin", "pp311-ops": "operator"},
-            "default_role": "viewer",
-        },
-        headers=HEADERS,
-    )
-    cfg = client.get("/api/auth/sidecar-config", headers=HEADERS)
-    assert cfg.status_code == 200, cfg.text
-    body = cfg.json()
-    assert 'oidc_issuer_url = "https://login.example.gov"' in body["config"]
-    assert 'client_id = "panel-client"' in body["config"]
-    # The client secret is NEVER inlined — only referenced as an env var.
-    assert "topsecret" not in body["config"]
-    assert "${OAUTH2_PROXY_CLIENT_SECRET}" in body["config"]
-    # Only recognized groups may sign in.
-    assert set(body["allowed_groups"]) == {"pp311-admins", "pp311-ops"}
-    assert "oauth2-proxy" in body["compose"]
