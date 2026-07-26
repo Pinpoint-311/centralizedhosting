@@ -155,45 +155,66 @@ export function Dashboard() {
             </Link>
           </div>
         ) : (
-          <div className="divide-y divide-white/5">
-            {data.towns.map((t, i) => (
-              <motion.div
-                key={t.id}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: Math.min(i * 0.025, 0.3) }}
-              >
-                <Link
-                  to={`/towns/${t.id}`}
-                  className="flex items-center gap-4 px-6 py-4 hover:bg-white/[0.03] transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-white truncate">{t.name}</div>
-                    <div className="text-sm text-white/40 truncate">{t.host}</div>
-                  </div>
-                  <div className="hidden sm:block text-sm text-white/50 w-28">
-                    {t.running_version || <span className="text-white/30">unknown</span>}
-                    {t.drift && <span className="text-amber-300 ml-1" title="version drift">•</span>}
-                  </div>
-                  <div className="hidden md:flex items-center gap-1.5 text-xs text-white/40 w-24">
-                    {t.reachable === null ? (
-                      <span>—</span>
-                    ) : t.reachable ? (
-                      <>
-                        <Wifi className="w-3.5 h-3.5 text-green-400" /> {timeAgo(t.last_seen)}
-                      </>
-                    ) : (
-                      <>
-                        <WifiOff className="w-3.5 h-3.5 text-red-400" /> down
-                      </>
-                    )}
-                  </div>
-                  <StatusBadge status={t.status} />
-                  <ArrowRight className="w-4 h-4 text-white/30" />
-                </Link>
-              </motion.div>
-            ))}
-          </div>
+          <>
+            {/* Column header — turns the row metadata into aligned columns. */}
+            <div className="hidden sm:flex items-center gap-4 px-6 py-2.5 border-b border-white/5 text-[11px] font-medium uppercase tracking-wider text-white/30">
+              <div className="w-9 shrink-0" aria-hidden />
+              <div className="flex-1 min-w-0">Municipality</div>
+              <div className="w-24 text-right">Version</div>
+              <div className="hidden md:block w-24 text-right">Last seen</div>
+              <div className="w-36 text-right">Status</div>
+              <div className="w-4 shrink-0" aria-hidden />
+            </div>
+            <div className="divide-y divide-white/5">
+              {data.towns.map((t, i) => {
+                // Reachability is only meaningful for a live instance — a
+                // decommissioned/migrated town shouldn't show a "reachable" pulse.
+                const liveReach = !['decommissioned', 'migrated'].includes(t.status)
+                return (
+                  <motion.div
+                    key={t.id}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: Math.min(i * 0.025, 0.3) }}
+                  >
+                    <Link
+                      to={`/towns/${t.id}`}
+                      className="group flex items-center gap-4 px-6 py-3.5 hover:bg-white/[0.03] transition-colors"
+                    >
+                      <div className="w-9 h-9 rounded-xl bg-primary-500/15 text-primary-300 border border-white/10 flex items-center justify-center shrink-0">
+                        <Building2 className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-white truncate">{t.name}</div>
+                        <div className="text-sm text-white/40 truncate">{t.host}</div>
+                      </div>
+                      <div className="hidden sm:block w-24 text-right text-sm text-white/60 truncate">
+                        {t.running_version || <span className="text-white/25">—</span>}
+                        {t.drift && <span className="text-amber-300 ml-1" title="version drift">•</span>}
+                      </div>
+                      <div className="hidden md:flex w-24 items-center justify-end gap-1.5 text-xs text-white/40 whitespace-nowrap">
+                        {!liveReach || t.reachable === null ? (
+                          <span className="text-white/25">—</span>
+                        ) : t.reachable ? (
+                          <>
+                            <Wifi className="w-3.5 h-3.5 text-green-400 shrink-0" /> {timeAgo(t.last_seen)}
+                          </>
+                        ) : (
+                          <>
+                            <WifiOff className="w-3.5 h-3.5 text-red-400 shrink-0" /> down
+                          </>
+                        )}
+                      </div>
+                      <div className="w-36 flex justify-end shrink-0">
+                        <StatusBadge status={t.status} />
+                      </div>
+                      <ArrowRight className="w-4 h-4 text-white/25 group-hover:text-white/60 transition-colors shrink-0" />
+                    </Link>
+                  </motion.div>
+                )
+              })}
+            </div>
+          </>
         )}
       </Card>
     </div>
