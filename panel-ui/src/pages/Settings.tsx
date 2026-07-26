@@ -137,8 +137,8 @@ export function Settings() {
 }
 
 /**
- * One place to set up API keys: enter each credential the State provides once
- * (services set to "State" use it), and see at a glance who provides the rest.
+ * One place to set up API keys: enter each credential the Host provides once
+ * (services set to "Host" use it), and see at a glance who provides the rest.
  */
 function ApiKeysHub({
   catalog,
@@ -169,7 +169,7 @@ function ApiKeysHub({
     }
   }
 
-  // Services the State provides once, program-wide (need a credential here).
+  // Services the Host provides once, program-wide (need a credential here).
   const shared = catalog.assignable.filter((s) => s.default_owner === 'state_shared')
   const perTown = catalog.assignable.filter((s) => s.default_owner === 'state_per_town')
   const towned = catalog.assignable.filter((s) => s.default_owner === 'town')
@@ -180,7 +180,7 @@ function ApiKeysHub({
         <KeyRound className="w-5 h-5" /> API keys &amp; credentials
       </h3>
       <p className="text-sm text-white/50 mb-5">
-        Enter each credential the <b>State</b> provides once — every town using it plugs in
+        Enter each credential the <b>Host</b> provides once — every town using it plugs in
         automatically, no per-town re-entry. Stored encrypted at rest; write-only. Towns provide
         their own keys inside their instances.
       </p>
@@ -226,7 +226,7 @@ function ApiKeysHub({
         <div className="mt-5 pt-4 border-t border-white/10 space-y-2 text-sm">
           {perTown.length > 0 && (
             <p className="text-white/50">
-              <span className="text-indigo-200">State, per town:</span>{' '}
+              <span className="text-indigo-200">Host, per town:</span>{' '}
               {perTown.map((s) => s.label).join(', ')} — a distinct value is entered on each town's
               <b> API keys</b> tab (metered/billed per town).
             </p>

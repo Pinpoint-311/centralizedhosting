@@ -46,7 +46,7 @@ export function PublicRequest() {
       setState('sent')
     } catch (e) {
       const msg = (e as Error).message
-      setError(msg.includes('not enabled') ? 'Online requests are not currently open. Please contact your state program office.' : msg)
+      setError(msg.includes('not enabled') ? 'Online requests are not currently open. Please contact your hosting program directly.' : msg)
       setState('error')
     } finally {
       setSaving(false)

@@ -227,10 +227,13 @@ export function TownDetail() {
       {tab === 'keys' && <KeysTab tenant={tenant} onChanged={load} />}
       {tab === 'policy' && <PolicyTab tenant={tenant} />}
       {tab === 'transparency' && <TransparencyTab tenant={tenant} />}
-      {tab === 'provisioning' && <Provisioning tenant={tenant} />}
-
-      {can('approver') && tenant.status !== 'decommissioned' && (
-        <OffloadZone tenant={tenant} onChanged={load} />
+      {tab === 'provisioning' && (
+        <div className="space-y-4">
+          <Provisioning tenant={tenant} />
+          {can('approver') && tenant.status !== 'decommissioned' && (
+            <OffloadZone tenant={tenant} onChanged={load} />
+          )}
+        </div>
       )}
 
       {can('approver') && tenant.status !== 'decommissioned' && (
@@ -330,8 +333,6 @@ function DomainContact({ tenant, onSaved }: { tenant: Tenant; onSaved: () => voi
     contact_phone: tenant.contact_phone || '',
     address: tenant.address || '',
     notes: tenant.notes || '',
-    latitude: tenant.latitude != null ? String(tenant.latitude) : '',
-    longitude: tenant.longitude != null ? String(tenant.longitude) : '',
     county: tenant.county || '',
     tags: (tenant.tags || []).join(', '),
   })
@@ -352,8 +353,6 @@ function DomainContact({ tenant, onSaved }: { tenant: Tenant; onSaved: () => voi
         notes: form.notes || null,
         county: form.county.trim() || null,
         tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
-        latitude: form.latitude.trim() ? Number(form.latitude) : null,
-        longitude: form.longitude.trim() ? Number(form.longitude) : null,
       })
       toast.push('Saved')
       onSaved()
@@ -377,7 +376,7 @@ function DomainContact({ tenant, onSaved }: { tenant: Tenant; onSaved: () => voi
           placeholder="311.springfield.gov"
           value={form.custom_domain}
           onChange={(e) => set('custom_domain', e.target.value)}
-          helperText="Leave blank to serve on the state subdomain. Custom domains need a CNAME to the managed host; TLS is issued on demand."
+          helperText="Leave blank to serve on the host subdomain. Custom domains need a CNAME to the managed host; TLS is issued on demand."
         />
       </Card>
 
@@ -402,30 +401,6 @@ function DomainContact({ tenant, onSaved }: { tenant: Tenant; onSaved: () => voi
             helperText="For filtering the fleet on the Municipalities page."
           />
           <Textarea label="Notes (internal)" value={form.notes} onChange={(e) => set('notes', e.target.value)} />
-        </div>
-      </Card>
-
-      <Card>
-        <h3 className="font-semibold text-white mb-1">Location (for the State Map)</h3>
-        <p className="text-sm text-white/50 mb-4">
-          Optional latitude / longitude in decimal degrees to place this municipality on the state
-          map. Metadata only.
-        </p>
-        <div className="grid sm:grid-cols-2 gap-4">
-          <Input
-            label="Latitude"
-            inputMode="decimal"
-            placeholder="39.7817"
-            value={form.latitude}
-            onChange={(e) => set('latitude', e.target.value)}
-          />
-          <Input
-            label="Longitude"
-            inputMode="decimal"
-            placeholder="-89.6501"
-            value={form.longitude}
-            onChange={(e) => set('longitude', e.target.value)}
-          />
         </div>
       </Card>
 
@@ -481,7 +456,7 @@ function BoundaryPicker({ tenant, onSaved }: { tenant: Tenant; onSaved: () => vo
       })
       setHasBoundary(true)
       setResults([])
-      toast.push('Boundary saved — it now draws on the State Map')
+      toast.push('Boundary saved — it now draws on the Coverage Map')
       onSaved()
     } catch (e) {
       toast.push((e as Error).message, 'error')
@@ -512,7 +487,7 @@ function BoundaryPicker({ tenant, onSaved }: { tenant: Tenant; onSaved: () => vo
       </h3>
       <p className="text-sm text-white/50 mb-4">
         Search OpenStreetMap for this municipality and save its boundary — the same source the
-        Pinpoint app uses. It draws as the town's polygon on the State Map. Public geography only.
+        Pinpoint app uses. It draws as the town's polygon on the Coverage Map. Public geography only.
       </p>
       <div className="flex flex-col sm:flex-row gap-2 mb-3">
         <Input
@@ -607,7 +582,7 @@ function KeysTab({ tenant, onChanged }: { tenant: Tenant; onChanged: () => void 
         <p className="text-sm text-white/50 mb-4">
           Who provides each external service key for this town. It starts from your{' '}
           <Link to="/settings" className="text-indigo-300 hover:text-indigo-200">program defaults</Link>
-          {' '}— change any you need. Keys the <b>State</b> provides are entered once in Settings; a
+          {' '}— change any you need. Keys the <b>Host</b> provides are entered once in Settings; a
           per-town key is entered just below.
         </p>
         <KeyMatrix
@@ -631,9 +606,9 @@ function KeysTab({ tenant, onChanged }: { tenant: Tenant; onChanged: () => void 
 
       {sharedServices.length > 0 && (
         <Card>
-          <h3 className="font-semibold text-white mb-1">State-provided for this town</h3>
+          <h3 className="font-semibold text-white mb-1">Host-provided for this town</h3>
           <p className="text-sm text-white/50 mb-3">
-            These use one shared state credential. Set their values once under{' '}
+            These use one shared host credential. Set their values once under{' '}
             <Link to="/settings" className="text-indigo-300 hover:text-indigo-200">
               Settings → API keys
             </Link>
@@ -687,9 +662,9 @@ function BrokeredSecrets({
 
   return (
     <Card>
-      <h3 className="font-semibold text-white mb-1">Per-town state credentials</h3>
+      <h3 className="font-semibold text-white mb-1">Per-town host credentials</h3>
       <p className="text-sm text-white/50 mb-4">
-        A distinct value for this town, for the services set to <b>State · per-town</b>. Stored
+        A distinct value for this town, for the services set to <b>Host · per-town</b>. Stored
         encrypted at rest; write-only (never displayed back).
       </p>
       <div className="space-y-3">
@@ -822,7 +797,7 @@ function SetupCredential({ tenant }: { tenant: Tenant }) {
       </h3>
       <p className="text-sm text-white/50 mb-4">
         The one-time setup password the town admin enters at their app's first-run screen to create
-        their own admin account. Hand it off, then have them rotate it — the state never logs in with it.
+        their own admin account. Hand it off, then have them rotate it — the host never logs in with it.
       </p>
       {!cred ? (
         <Button variant="secondary" onClick={reveal} isLoading={busy} disabled={!can('approver')} leftIcon={<Eye className="w-4 h-4" />}>
@@ -939,7 +914,7 @@ function OffloadZone({ tenant, onChanged }: { tenant: Tenant; onChanged: () => v
               <code className="text-white/70">.env</code> (carrying this town's{' '}
               <code className="text-white/70">SECRET_KEY</code> so existing encrypted data still
               decrypts), a Caddyfile, and a migration runbook. The town runs it on its own servers,
-              and no state control plane is baked in. The managed instance keeps running until you
+              and no host control plane is baked in. The managed instance keeps running until you
               confirm the cutover.
             </p>
           </div>
@@ -1240,7 +1215,7 @@ function PolicyTab({ tenant }: { tenant: Tenant }) {
     try {
       setHold(await api.setLegalHold(tenant.id, on, holdReason.trim()))
       setHoldReason('')
-      toast.push(on ? 'State legal hold placed' : 'State legal hold lifted')
+      toast.push(on ? 'Host legal hold placed' : 'Host legal hold lifted')
     } catch (e) {
       toast.push((e as Error).message, 'error')
     }
@@ -1256,13 +1231,13 @@ function PolicyTab({ tenant }: { tenant: Tenant }) {
         <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
           <Scale className="w-5 h-5 text-amber-300" /> Legal hold (shared)
         </h3>
-        <p className="text-sm text-white/50 mb-4">
-          Either the state or the town can place a hold; the effective hold is either one, and
+        <p className="text-sm text-white/50 mb-4 max-w-3xl">
+          Either the host or the town can place a hold; the effective hold is either one, and
           neither party can clear the other's. Placing a hold suspends all deletion/purge.
         </p>
-        <div className="grid sm:grid-cols-3 gap-3 mb-4">
+        <div className="grid grid-cols-3 gap-3 mb-4 max-w-xl">
           <div className="p-3 rounded-lg bg-white/[0.03] border border-white/10">
-            <div className="text-xs text-white/40">State hold</div>
+            <div className="text-xs text-white/40">Host hold</div>
             <div className={`font-semibold ${hold?.state_hold ? 'text-amber-300' : 'text-white/50'}`}>{hold?.state_hold ? 'ON' : 'off'}</div>
           </div>
           <div className="p-3 rounded-lg bg-white/[0.03] border border-white/10">
@@ -1275,66 +1250,68 @@ function PolicyTab({ tenant }: { tenant: Tenant }) {
           </div>
         </div>
         {can('approver') ? (
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Input placeholder="Reason (audited) — e.g. litigation hold, ticket #" value={holdReason} onChange={(e) => setHoldReason(e.target.value)} />
+          <div className="flex flex-col sm:flex-row gap-2 max-w-3xl">
+            <Input className="flex-1" placeholder="Reason (audited) — e.g. litigation hold, ticket #" value={holdReason} onChange={(e) => setHoldReason(e.target.value)} />
             {hold?.state_hold ? (
-              <Button variant="secondary" onClick={() => toggleHold(false)}>Lift state hold</Button>
+              <Button className="shrink-0 whitespace-nowrap" variant="secondary" onClick={() => toggleHold(false)}>Lift host hold</Button>
             ) : (
-              <Button variant="danger" onClick={() => toggleHold(true)} leftIcon={<Scale className="w-4 h-4" />}>Place state hold</Button>
+              <Button className="shrink-0 whitespace-nowrap" variant="danger" onClick={() => toggleHold(true)} leftIcon={<Scale className="w-4 h-4" />}>Place host hold</Button>
             )}
           </div>
         ) : (
-          <p className="text-sm text-white/40">Approver role required to change the state hold.</p>
+          <p className="text-sm text-white/40">Approver role required to change the host hold.</p>
         )}
       </Card>
 
       {/* Managed policy */}
       <Card>
         <div className="flex items-center justify-between mb-1">
-          <h3 className="font-semibold text-white">State-managed policy</h3>
+          <h3 className="font-semibold text-white">Host-managed policy</h3>
           {dirty && can('operator') && <Button size="sm" onClick={save} isLoading={saving} leftIcon={<Save className="w-4 h-4" />}>Save</Button>}
         </div>
-        <p className="text-sm text-white/50 mb-4">
-          Set by the state, applied by the town, shown read-only in the town's console. The town
-          still <b>operates</b> its own records/OPRA requests — only the policy is state-set.
+        <p className="text-sm text-white/50 mb-4 max-w-3xl">
+          Set by the host, applied by the town, shown read-only in the town's console. The town
+          still <b>operates</b> its own records/OPRA requests — only the policy is host-set.
         </p>
-        {groups.map((g) => (
-          <div key={g} className="mb-5">
-            <div className="text-xs uppercase tracking-wide text-white/40 mb-2">{g}</div>
-            <div className="space-y-3">
-              {catalog.filter((f) => f.group === g).map((f) => (
-                <div key={f.key} className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <div className="sm:w-72 shrink-0">
-                    <div className="text-sm text-white flex items-center gap-2">
-                      {f.label}
-                      {f.scope === 'shared' && <Badge>shared</Badge>}
+        <div className="max-w-2xl">
+          {groups.map((g) => (
+            <div key={g} className="mb-5">
+              <div className="text-xs uppercase tracking-wide text-white/40 mb-2">{g}</div>
+              <div className="space-y-3">
+                {catalog.filter((f) => f.group === g).map((f) => (
+                  <div key={f.key} className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="sm:w-64 shrink-0">
+                      <div className="text-sm text-white flex items-center gap-2">
+                        {f.label}
+                        {f.scope === 'shared' && <Badge>shared</Badge>}
+                      </div>
+                      <div className="text-xs text-white/40">{f.help}</div>
                     </div>
-                    <div className="text-xs text-white/40">{f.help}</div>
+                    <div className="flex-1 min-w-0">
+                      {f.type === 'bool' ? (
+                        <button
+                          disabled={!can('operator')}
+                          onClick={() => { setValues((v) => ({ ...v, [f.key]: !v[f.key] })); setDirty(true) }}
+                          className={`px-3 py-1.5 text-sm rounded-lg border ${values[f.key] ? 'bg-indigo-500/30 border-indigo-400/40 text-white' : 'border-white/15 text-white/60'}`}
+                        >
+                          {values[f.key] ? 'Enabled' : 'Disabled'}
+                        </button>
+                      ) : (
+                        <input
+                          disabled={!can('operator')}
+                          className="glass-input w-full"
+                          type={f.type === 'int' ? 'number' : 'text'}
+                          value={String(values[f.key] ?? '')}
+                          onChange={(e) => { setValues((v) => ({ ...v, [f.key]: f.type === 'int' ? Number(e.target.value) : e.target.value })); setDirty(true) }}
+                        />
+                      )}
+                    </div>
                   </div>
-                  <div className="flex-1">
-                    {f.type === 'bool' ? (
-                      <button
-                        disabled={!can('operator')}
-                        onClick={() => { setValues((v) => ({ ...v, [f.key]: !v[f.key] })); setDirty(true) }}
-                        className={`px-3 py-1.5 text-sm rounded-lg border ${values[f.key] ? 'bg-indigo-500/30 border-indigo-400/40 text-white' : 'border-white/15 text-white/60'}`}
-                      >
-                        {values[f.key] ? 'Enabled' : 'Disabled'}
-                      </button>
-                    ) : (
-                      <input
-                        disabled={!can('operator')}
-                        className="glass-input max-w-xs"
-                        type={f.type === 'int' ? 'number' : 'text'}
-                        value={String(values[f.key] ?? '')}
-                        onChange={(e) => { setValues((v) => ({ ...v, [f.key]: f.type === 'int' ? Number(e.target.value) : e.target.value })); setDirty(true) }}
-                      />
-                    )}
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </Card>
     </div>
   )
@@ -1352,7 +1329,7 @@ function TransparencyTab({ tenant }: { tenant: Tenant }) {
     <div className="space-y-4">
       <div className="grid md:grid-cols-2 gap-4">
         <Card>
-          <h3 className="font-semibold text-white mb-3">What the state's panel holds</h3>
+          <h3 className="font-semibold text-white mb-3">What the host's panel holds</h3>
           <ul className="space-y-2">
             {data.metadata_panel_holds.map((m, i) => (
               <li key={i} className="flex items-start gap-2 text-sm text-white/70"><Check className="w-4 h-4 text-white/40 shrink-0 mt-0.5" />{m}</li>
@@ -1369,13 +1346,13 @@ function TransparencyTab({ tenant }: { tenant: Tenant }) {
         </Card>
       </div>
       <Card>
-        <h3 className="font-semibold text-white mb-1">State actions on this town</h3>
+        <h3 className="font-semibold text-white mb-1">Host actions on this town</h3>
         <p className="text-sm text-white/50 mb-3">
-          The state can set policy (like a legal hold) but has <b>no access to your data</b> — there is
-          no break-glass or login into your instance. Every policy action is logged here for you.
+          The host can set policy (like a legal hold) but has <b>no access to your data</b> — there is
+          no login into your instance. Every policy action is logged here for you.
         </p>
         {data.state_access_events.length === 0 ? (
-          <p className="text-white/40 text-sm">No state actions on record.</p>
+          <p className="text-white/40 text-sm">No host actions on record.</p>
         ) : (
           <div className="space-y-1.5">
             {data.state_access_events.map((e, i) => (

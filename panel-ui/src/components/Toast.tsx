@@ -38,8 +38,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               initial={{ opacity: 0, x: 40 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 40 }}
-              className={`glass-card !p-3.5 flex items-start gap-3 border ${
-                t.kind === 'success' ? 'border-green-500/30' : 'border-red-500/30'
+              style={{ background: 'rgba(23, 20, 51, 0.98)' }}
+              className={`rounded-2xl p-3.5 flex items-start gap-3 border shadow-2xl backdrop-blur-xl ${
+                t.kind === 'success'
+                  ? 'border-green-400/40 ring-1 ring-green-400/10'
+                  : 'border-red-400/40 ring-1 ring-red-400/10'
               }`}
             >
               {t.kind === 'success' ? (
@@ -47,10 +50,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               ) : (
                 <AlertCircle className="w-5 h-5 text-red-300 shrink-0 mt-0.5" />
               )}
-              <p className="text-sm text-white/90 flex-1">{t.message}</p>
+              <p className="text-sm font-medium text-white flex-1 leading-snug">{t.message}</p>
               <button
                 onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))}
-                className="text-white/40 hover:text-white"
+                className="text-white/50 hover:text-white shrink-0"
+                aria-label="Dismiss"
               >
                 <X className="w-4 h-4" />
               </button>

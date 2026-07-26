@@ -24,12 +24,12 @@ import { PublicRequest } from './pages/PublicRequest'
 
 const MUNI_TABS: HubTab[] = [
   { to: '/towns', label: 'Directory', subtitle: 'Every municipality you host.' },
-  { to: '/map', label: 'State Map', subtitle: 'Onboarded municipalities and their boundaries — public geography from OpenStreetMap, never resident data.' },
+  { to: '/map', label: 'Coverage Map', subtitle: 'Onboarded municipalities and their boundaries — public geography from OpenStreetMap, never resident data.' },
   { to: '/requests', label: 'Requests', subtitle: 'Municipalities that have asked to be onboarded.' },
 ]
 const INSIGHTS_TABS: HubTab[] = [
   { to: '/analytics', label: '311 Analytics', subtitle: 'Resident-request trends, aggregated by region — never by individual municipality.' },
-  { to: '/cost', label: 'Cost & Chargeback', subtitle: 'What each municipality costs to host, split state-borne vs town-borne.' },
+  { to: '/cost', label: 'Cost & Chargeback', subtitle: 'What each municipality costs to host, split host-borne vs town-borne.' },
 ]
 const OPS_TABS: HubTab[] = [
   { to: '/sla', label: 'Uptime & SLA', subtitle: 'Availability and incidents across the fleet.' },
@@ -38,7 +38,7 @@ const OPS_TABS: HubTab[] = [
 ]
 const GOV_TABS: HubTab[] = [
   { to: '/compliance', label: 'Compliance', subtitle: 'Security and policy posture across the fleet — infrastructure metadata, not resident data.' },
-  { to: '/audit', label: 'Audit Log', subtitle: 'Tamper-evident record of every state action.' },
+  { to: '/audit', label: 'Audit Log', subtitle: 'Tamper-evident record of every host action.' },
 ]
 
 export function App() {

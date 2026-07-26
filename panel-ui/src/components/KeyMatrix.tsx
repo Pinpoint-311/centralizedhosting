@@ -14,16 +14,16 @@ export const OWNER_META: Record<
     hint: 'The town enters this in its own instance — it never touches the panel.',
   },
   state_shared: {
-    label: 'State provides',
-    short: 'State',
+    label: 'Host provides',
+    short: 'Host',
     icon: Users,
-    hint: 'One state credential, entered once, used by every town.',
+    hint: 'One host credential, entered once, used by every town.',
   },
   state_per_town: {
-    label: 'State provides',
-    short: 'State',
+    label: 'Host provides',
+    short: 'Host',
     icon: Landmark,
-    hint: 'State-owned but a distinct value per town — for billing, quota, and blast-radius isolation.',
+    hint: 'Host-owned but a distinct value per town — for billing, quota, and blast-radius isolation.',
   },
 }
 
@@ -83,7 +83,7 @@ export function KeyMatrix({
                       : 'text-white/60 hover:text-white'
                   } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
-                  <Landmark className="w-3.5 h-3.5" /> State
+                  <Landmark className="w-3.5 h-3.5" /> Host
                 </button>
                 <button
                   type="button"
@@ -146,7 +146,7 @@ export function KeyMatrix({
           <Lock className="w-4 h-4 text-white/40 shrink-0" />
           <span className="text-sm text-white/60">
             Database, encryption keys, backups, and the app secret are provisioned
-            automatically and always state-managed — nothing to configure.
+            automatically and always host-managed — nothing to configure.
           </span>
         </div>
         {showKeys && (

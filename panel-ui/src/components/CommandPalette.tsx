@@ -65,7 +65,7 @@ export function CommandPalette() {
   const pages: Item[] = [
     { id: 'p-overview', label: 'Overview', icon: <LayoutDashboard className="w-4 h-4" />, action: () => go('/') },
     { id: 'p-towns', label: 'Municipalities', icon: <Building2 className="w-4 h-4" />, action: () => go('/towns') },
-    { id: 'p-map', label: 'State Map', icon: <MapIcon className="w-4 h-4" />, action: () => go('/map') },
+    { id: 'p-map', label: 'Coverage Map', icon: <MapIcon className="w-4 h-4" />, action: () => go('/map') },
     { id: 'p-analytics', label: '311 Analytics', icon: <BarChart3 className="w-4 h-4" />, action: () => go('/analytics') },
     { id: 'p-cost', label: 'Cost & Chargeback', icon: <DollarSign className="w-4 h-4" />, action: () => go('/cost') },
     { id: 'p-compliance', label: 'Compliance', icon: <ShieldCheck className="w-4 h-4" />, action: () => go('/compliance') },

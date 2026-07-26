@@ -363,7 +363,7 @@ function AddTownWizard({ onClose, onCreated }: { onClose: () => void; onCreated:
                 const isState = s.default_owner !== 'town'
                 return (
                   <Badge key={s.id} variant={isState ? 'info' : 'default'}>
-                    {s.label}: {isState ? 'State' : 'Town'}
+                    {s.label}: {isState ? 'Host' : 'Town'}
                   </Badge>
                 )
               })}

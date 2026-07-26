@@ -34,7 +34,7 @@ export function Cost() {
   if (!data) return null
 
   const split = [
-    { name: 'State-borne', value: data.state_borne, color: '#818cf8' },
+    { name: 'Host-borne', value: data.state_borne, color: '#818cf8' },
     { name: 'Town-borne', value: data.town_borne, color: '#22c55e' },
   ].filter((s) => s.value > 0)
 
@@ -58,7 +58,7 @@ export function Cost() {
               <div className="text-3xl font-bold text-white mt-1">{money(data.fleet_total)}</div>
             </Card>
             <Card className="!p-5">
-              <div className="flex items-center gap-2 text-sm text-indigo-200"><Landmark className="w-4 h-4" /> State-borne</div>
+              <div className="flex items-center gap-2 text-sm text-indigo-200"><Landmark className="w-4 h-4" /> Host-borne</div>
               <div className="text-3xl font-bold text-white mt-1">{money(data.state_borne)}</div>
             </Card>
             <Card className="!p-5">
@@ -94,7 +94,7 @@ export function Cost() {
                   <thead>
                     <tr className="text-left text-white/40 border-b border-white/10">
                       <th className="px-5 py-3 font-medium">Municipality</th>
-                      <th className="px-4 py-3 font-medium text-right">State-borne</th>
+                      <th className="px-4 py-3 font-medium text-right">Host-borne</th>
                       <th className="px-4 py-3 font-medium text-right">Town-borne</th>
                       <th className="px-5 py-3 font-medium text-right">Total</th>
                     </tr>

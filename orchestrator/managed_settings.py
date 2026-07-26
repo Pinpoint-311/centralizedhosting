@@ -40,7 +40,7 @@ CATALOG = [
     },
     {
         "key": "legal_hold",
-        "label": "Legal hold (state-placed)",
+        "label": "Legal hold (host-placed)",
         "type": "bool",
         "default": False,
         "help": "Suspend all deletion/purge for litigation or records hold. Shared: "
