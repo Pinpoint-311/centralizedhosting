@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { NavLink, useLocation, useNavigate, Outlet } from 'react-router-dom'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard,
   Building2,
@@ -11,7 +12,13 @@ import {
   LogOut,
   Menu,
   X,
+  ChevronDown,
+  Palette,
+  Terminal,
+  Landmark,
+  Users,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { api, clearToken } from '../lib/api'
 import { Logo } from './Logo'
 import { getPlatformName, getTagline, getLogoUrl } from '../lib/config'
@@ -33,12 +40,112 @@ const NAV: NavItem[] = [
   { to: '/analytics', label: 'Insights', icon: BarChart3, owns: ['/analytics', '/cost'] },
   { to: '/sla', label: 'Operations', icon: Activity, owns: ['/sla', '/alerts', '/releases'], badge: 'alerts' },
   { to: '/compliance', label: 'Governance', icon: ShieldCheck, owns: ['/compliance', '/audit'] },
-  { to: '/setup/branding', label: 'Setup', icon: Settings, owns: ['/setup', '/settings'] },
+]
+
+// The hosting-provider admin console, surfaced as a dropdown in the main nav.
+// Groups mirror the Pinpoint 311 app's admin console (Departments and Service
+// Categories omitted — those are municipality-fleet concerns).
+interface SetupGroup {
+  label: string
+  items: { to: string; label: string; icon: LucideIcon }[]
+}
+
+const SETUP_GROUPS: SetupGroup[] = [
+  {
+    label: 'Branding & Setup',
+    items: [
+      { to: '/setup/branding', label: 'Branding', icon: Palette },
+      { to: '/setup/integration', label: 'Setup & Integration', icon: Terminal },
+    ],
+  },
+  {
+    label: 'Organization',
+    items: [
+      { to: '/setup/organization', label: 'Organization', icon: Landmark },
+      { to: '/setup/users', label: 'Users', icon: Users },
+    ],
+  },
+  {
+    label: 'System & Compliance',
+    items: [
+      { to: '/setup/system', label: 'System Settings', icon: Settings },
+      { to: '/setup/health', label: 'System Health', icon: BarChart3 },
+    ],
+  },
 ]
 
 function isActive(pathname: string, item: NavItem): boolean {
   if (item.exact) return pathname === item.to
   return item.owns.some((p) => pathname === p || pathname.startsWith(p + '/'))
+}
+
+// Expandable "Setup" entry — the admin console as a dropdown in the main nav.
+// Auto-opens when on a /setup route; collapses otherwise.
+function SetupNav({ onNavigate }: { onNavigate: () => void }) {
+  const location = useLocation()
+  const onSetup = location.pathname.startsWith('/setup') || location.pathname === '/settings'
+  const [open, setOpen] = useState(onSetup)
+  useEffect(() => {
+    if (onSetup) setOpen(true)
+  }, [onSetup])
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors ${
+          onSetup ? 'bg-primary-500/20 text-white font-medium' : 'text-white/60 hover:bg-white/5 hover:text-white'
+        }`}
+      >
+        <Settings className="w-5 h-5 shrink-0" />
+        <span className="flex-1 text-left">Setup</span>
+        <motion.span animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.2 }}>
+          <ChevronDown className="w-4 h-4 opacity-60" />
+        </motion.span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeInOut' }}
+            className="overflow-hidden"
+          >
+            <div className="pt-1 pb-1 space-y-2.5">
+              {SETUP_GROUPS.map((g) => (
+                <div key={g.label}>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-white/30 px-3 mb-1">
+                    {g.label}
+                  </div>
+                  <div className="space-y-0.5">
+                    {g.items.map((it) => (
+                      <NavLink
+                        key={it.to}
+                        to={it.to}
+                        onClick={onNavigate}
+                        className={({ isActive }) =>
+                          `flex items-center gap-3 pl-6 pr-3 py-2 rounded-lg text-sm transition-colors ${
+                            isActive
+                              ? 'bg-primary-500/20 text-white'
+                              : 'text-white/50 hover:bg-white/5 hover:text-white'
+                          }`
+                        }
+                      >
+                        <it.icon className="w-4 h-4 shrink-0" />
+                        <span>{it.label}</span>
+                      </NavLink>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
 }
 
 export function Shell({ children, onLogout }: { children: React.ReactNode; onLogout: () => void }) {
@@ -96,6 +203,7 @@ export function Shell({ children, onLogout }: { children: React.ReactNode; onLog
             </NavLink>
           )
         })}
+        <SetupNav onNavigate={() => setOpen(false)} />
       </nav>
 
       <div className="p-3 border-t border-white/10">
