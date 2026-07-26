@@ -1,26 +1,29 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { KeyRound, ArrowRight, AlertCircle, LogIn } from 'lucide-react'
+import { KeyRound, ArrowRight, AlertCircle, LogIn, User as UserIcon } from 'lucide-react'
 import { api, setToken } from '../lib/api'
 import { Button, Card, Input } from './ui'
 import { Logo } from './Logo'
+import { getPlatformName, getTagline } from '../lib/config'
 
 const SSO_ERRORS: Record<string, string> = {
   expired_state: 'Your sign-in attempt expired. Please try again.',
   verification_failed: 'We could not verify your identity provider response.',
   not_configured: 'Single sign-on is not configured.',
+  not_provisioned: 'Your account is not authorized. Ask an admin to add you under Setup → Users.',
 }
 
 export function TokenGate({ onAuthed }: { onAuthed: () => void }) {
-  const [value, setValue] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [ssoConfigured, setSsoConfigured] = useState(false)
   const [showToken, setShowToken] = useState(false)
+  const [token, setTokenValue] = useState('')
 
   useEffect(() => {
     api.ssoStatus().then((s) => setSsoConfigured(s.configured)).catch(() => setSsoConfigured(false))
-    // Surface an SSO callback error passed back on the URL.
     const params = new URLSearchParams(window.location.search)
     const err = params.get('sso_error')
     if (err) {
@@ -29,20 +32,31 @@ export function TokenGate({ onAuthed }: { onAuthed: () => void }) {
     }
   }, [])
 
-  async function submit() {
-    if (!value.trim()) return
+  async function loginWithPassword() {
+    if (!username.trim() || !password) return
     setLoading(true)
     setError('')
-    setToken(value.trim())
+    try {
+      await api.login(username.trim(), password)
+      onAuthed()
+    } catch (e) {
+      const m = (e as Error).message || ''
+      setError(m.includes('401') || /invalid/i.test(m) ? 'Incorrect username or password.' : m || 'Could not sign in.')
+      setLoading(false)
+    }
+  }
+
+  async function enterWithToken() {
+    if (!token.trim()) return
+    setLoading(true)
+    setError('')
+    setToken(token.trim())
     try {
       await api.whoami()
       onAuthed()
     } catch (e) {
-      setError(
-        (e as Error).message?.includes('401') || (e as Error).message?.includes('Invalid')
-          ? 'That panel token was not accepted.'
-          : (e as Error).message || 'Could not reach the control plane.',
-      )
+      const m = (e as Error).message || ''
+      setError(m.includes('401') || /invalid/i.test(m) ? 'That panel token was not accepted.' : m || 'Could not reach the control plane.')
       setLoading(false)
     }
   }
@@ -55,8 +69,8 @@ export function TokenGate({ onAuthed }: { onAuthed: () => void }) {
             <div className="flex justify-center mb-4">
               <Logo size={64} />
             </div>
-            <h1 className="text-2xl font-bold text-white">Pinpoint 311</h1>
-            <p className="text-white/50 mt-2">Centralized Hosting Control Plane</p>
+            <h1 className="text-2xl font-bold text-white">{getPlatformName()}</h1>
+            <p className="text-white/50 mt-2">{getTagline()}</p>
           </div>
 
           {error && (
@@ -67,7 +81,7 @@ export function TokenGate({ onAuthed }: { onAuthed: () => void }) {
           )}
 
           {ssoConfigured && (
-            <div className="space-y-3">
+            <div className="space-y-3 mb-5 pb-5 border-b border-white/10">
               <Button
                 className="w-full"
                 onClick={() => { window.location.href = '/api/auth/sso/login' }}
@@ -76,30 +90,52 @@ export function TokenGate({ onAuthed }: { onAuthed: () => void }) {
                 Sign in with SSO
               </Button>
               <p className="text-white/40 text-xs text-center">Secured by your organization's identity provider.</p>
-              {!showToken && (
-                <button
-                  onClick={() => setShowToken(true)}
-                  className="w-full text-center text-xs text-white/40 hover:text-white/70 mt-2"
-                >
-                  Use an operator token instead
-                </button>
-              )}
             </div>
           )}
 
-          {(!ssoConfigured || showToken) && (
-            <div className={`space-y-4 ${ssoConfigured ? 'mt-5 pt-5 border-t border-white/10' : ''}`}>
+          <div className="space-y-4">
+            <Input
+              label="Username"
+              placeholder="your operator username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && loginWithPassword()}
+              leftIcon={<UserIcon className="w-4 h-4" />}
+              autoFocus={!ssoConfigured}
+            />
+            <Input
+              label="Password"
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && loginWithPassword()}
+            />
+            <Button className="w-full" onClick={loginWithPassword} isLoading={loading} leftIcon={<KeyRound className="w-4 h-4" />}>
+              Sign in <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+          </div>
+
+          {!showToken ? (
+            <button
+              onClick={() => setShowToken(true)}
+              className="w-full text-center text-xs text-white/40 hover:text-white/70 mt-5"
+            >
+              Use a panel operator token instead
+            </button>
+          ) : (
+            <div className="mt-5 pt-5 border-t border-white/10 space-y-3">
               <Input
                 label="Panel operator token"
                 type="password"
                 placeholder="Paste your PANEL_API_TOKEN"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && submit()}
-                autoFocus={!ssoConfigured}
+                value={token}
+                onChange={(e) => setTokenValue(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && enterWithToken()}
+                helperText="Machine/bootstrap access. Create operators under Setup → Users."
               />
-              <Button className="w-full" variant={ssoConfigured ? 'secondary' : 'primary'} onClick={submit} isLoading={loading} leftIcon={<KeyRound className="w-4 h-4" />}>
-                Enter control plane <ArrowRight className="w-4 h-4 ml-2" />
+              <Button className="w-full" variant="secondary" onClick={enterWithToken} isLoading={loading}>
+                Enter with token
               </Button>
             </div>
           )}

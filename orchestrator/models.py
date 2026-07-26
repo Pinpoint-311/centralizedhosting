@@ -440,3 +440,29 @@ class FederationConfig(Base):
     default_role: Mapped[str] = mapped_column(String(20), default="viewer")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     updated_by: Mapped[str | None] = mapped_column(String(150), default=None)
+
+
+class User(Base):
+    """A panel operator. Mirrors the Pinpoint 311 app's User model, adapted to
+    the control plane: identity comes from SSO (matched by email) and mints the
+    app-style JWT bearer, or — for the first admin / break-fix — a password.
+
+    Per the operator's choice there is a single access level: every active user
+    is admin-equivalent (``role`` defaults to ``admin`` and isn't user-editable),
+    so the panel's existing RBAC guards all pass for any real user. The table
+    exists so access is managed explicitly (add/remove operators) rather than
+    auto-granted from IdP group membership.
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    full_name: Mapped[str | None] = mapped_column(String(255), default=None)
+    hashed_password: Mapped[str | None] = mapped_column(String(255), default=None)  # None for SSO-only
+    role: Mapped[str] = mapped_column(String(20), default="admin")  # single role
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    oidc_sub: Mapped[str | None] = mapped_column(String(255), unique=True, default=None)  # IdP subject
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)

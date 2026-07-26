@@ -11,18 +11,20 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from orchestrator import audit, oidc
 from orchestrator.config import settings
 from orchestrator.db import get_db
-from orchestrator.models import FederationConfig
+from orchestrator.models import FederationConfig, User, utcnow
 from orchestrator.security import (
     ROLES,
     encrypt_value,
     mint_session,
     require_admin,
 )
+from orchestrator.user_auth import create_access_token
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -103,19 +105,34 @@ def sso_callback(request: Request, db: Session = Depends(get_db),
         return RedirectResponse(f"{front}/?sso_error=verification_failed", status_code=302)
 
     actor = oidc.operator_identity(claims)
-    role = oidc.role_from_claims(cfg, claims)
-    audit.record(db, actor, "auth.sso_login", None, role=role, provider=cfg.provider)
+    email = (claims.get("email") or "").strip().lower()
+    sub = claims.get("sub")
+
+    # App model: the operator must already exist as a User, matched by email.
+    # Identity is federated; access is granted explicitly (Setup → Users), never
+    # auto-provisioned from IdP membership.
+    user = None
+    if email:
+        user = db.execute(
+            select(User).where(func.lower(User.email) == email)
+        ).scalar_one_or_none()
+    if user is None or not user.is_active:
+        audit.record(db, actor, "auth.sso_denied", None,
+                     email=email or None, reason="not_provisioned")
+        db.commit()
+        return RedirectResponse(f"{front}/?sso_error=not_provisioned", status_code=302)
+
+    if sub:
+        user.oidc_sub = sub
+    if not user.full_name:
+        user.full_name = claims.get("name") or claims.get("full_name")
+    user.last_login_at = utcnow()
+    audit.record(db, user.username, "auth.sso_login", user.username, provider=cfg.provider)
+    token = create_access_token({"sub": user.username, "role": user.role})
     db.commit()
 
-    session = mint_session(actor, role)
-    resp = RedirectResponse(f"{front}/", status_code=302)
-    resp.set_cookie(
-        settings.session_cookie_name, session,
-        max_age=settings.session_ttl_minutes * 60,
-        httponly=True, secure=not settings.panel_cookie_insecure,
-        samesite="lax", path="/",
-    )
-    return resp
+    # Hand the app-style JWT bearer back to the SPA (stored in localStorage).
+    return RedirectResponse(f"{front}/?token={token}", status_code=302)
 
 
 @router.post("/logout")

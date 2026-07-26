@@ -7,9 +7,11 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 from cryptography.fernet import Fernet
-from fastapi import Header, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request
+from sqlalchemy.orm import Session
 
 from orchestrator.config import settings
+from orchestrator.db import get_db
 
 
 # ---------------------------------------------------------------- operator auth
@@ -110,15 +112,24 @@ def require_role(minimum: str):
     """Dependency factory: authenticate, then require role >= `minimum`.
     Returns the operator identity string (used as the audit actor)."""
 
-    def dependency(request: Request, x_panel_token: str = Header(default="")) -> str:
-        # 1) SSO session cookie (if present and valid) authenticates on its own.
-        session = _session_from_request(request)
-        if session:
-            actor, role = session["actor"], session["role"]
+    def dependency(request: Request, x_panel_token: str = Header(default=""),
+                   db: Session = Depends(get_db)) -> str:
+        from orchestrator.user_auth import user_from_request
+
+        # 1) App-style bearer JWT for a managed User (SSO- or password-minted).
+        #    Single role: every active user is admin-equivalent.
+        user = user_from_request(request, db)
+        if user is not None:
+            actor, role = user.username, (user.role if user.role in ROLES else "admin")
         else:
-            # 2) Shared token + trusted OIDC-proxy headers (fail-closed).
-            actor = _authenticate(request, x_panel_token)
-            role = resolve_role(request)
+            # 2) SSO session cookie (if present and valid) authenticates on its own.
+            session = _session_from_request(request)
+            if session:
+                actor, role = session["actor"], session["role"]
+            else:
+                # 3) Shared token + trusted OIDC-proxy headers (fail-closed).
+                actor = _authenticate(request, x_panel_token)
+                role = resolve_role(request)
         if _RANK[role] < _RANK[minimum]:
             raise HTTPException(403, f"Requires '{minimum}' role; you have '{role}'.")
         return actor

@@ -15,6 +15,7 @@ import type {
   LegalHold,
   ManagedField,
   Operators,
+  PanelUser,
   PlatformConfig,
   ProvisionJob,
   PublicStatus,
@@ -31,6 +32,7 @@ import type {
 } from './types'
 
 const TOKEN_KEY = 'pp311_panel_token'
+const JWT_KEY = 'pp311_jwt' // app-style bearer, minted by password/SSO login
 
 export function getToken(): string {
   return localStorage.getItem(TOKEN_KEY) || ''
@@ -38,8 +40,15 @@ export function getToken(): string {
 export function setToken(t: string) {
   localStorage.setItem(TOKEN_KEY, t)
 }
+export function getJwt(): string {
+  return localStorage.getItem(JWT_KEY) || ''
+}
+export function setJwt(t: string) {
+  localStorage.setItem(JWT_KEY, t)
+}
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(JWT_KEY)
 }
 
 export class ApiError extends Error {
@@ -52,10 +61,13 @@ export class ApiError extends Error {
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {}
-  // Token auth (operator token). SSO auth rides on the HttpOnly session cookie,
-  // so requests always include credentials.
+  // App-style bearer JWT (password/SSO login) takes precedence; the panel
+  // operator token is the machine/bootstrap fallback. A legacy SSO session
+  // cookie still rides along via credentials: 'include'.
+  const jwt = getJwt()
   const tok = getToken()
-  if (tok) headers['X-Panel-Token'] = tok
+  if (jwt) headers['Authorization'] = `Bearer ${jwt}`
+  else if (tok) headers['X-Panel-Token'] = tok
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   const resp = await fetch(path, {
     method,
@@ -158,6 +170,22 @@ export const api = {
 
   // identity / admin
   whoami: () => req<WhoAmI>('GET', '/api/whoami'),
+  me: () => req<PanelUser>('GET', '/api/auth/me'),
+  login: async (username: string, password: string) => {
+    const r = await req<{ access_token: string; user: PanelUser }>('POST', '/api/auth/login', { username, password })
+    setJwt(r.access_token)
+    return r
+  },
+
+  // operator (user) management — single role; add / remove / enable operators
+  listUsers: () => req<PanelUser[]>('GET', '/api/users'),
+  createUser: (body: { username: string; email: string; full_name?: string }) =>
+    req<PanelUser>('POST', '/api/users', body),
+  updateUser: (id: number, body: Partial<{ email: string; full_name: string; is_active: boolean }>) =>
+    req<PanelUser>('PUT', `/api/users/${id}`, body),
+  deleteUser: (id: number) => req<void>('DELETE', `/api/users/${id}`),
+  setUserPassword: (id: number, password: string) =>
+    req<PanelUser>('POST', `/api/users/${id}/set-password`, { password }),
 
   // hosting-provider admin (branding, organization, system, operators)
   getPlatformConfig: () => req<PlatformConfig>('GET', '/api/platform/config'),

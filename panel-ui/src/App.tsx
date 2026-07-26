@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { MotionConfig } from 'framer-motion'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { api } from './lib/api'
+import { api, setJwt } from './lib/api'
 import { SessionProvider } from './lib/session'
 import { ToastProvider } from './components/Toast'
 import { TokenGate } from './components/TokenGate'
@@ -52,6 +52,16 @@ export function App() {
   const [auth, setAuth] = useState<'checking' | 'in' | 'out'>('checking')
 
   useEffect(() => {
+    // The SSO callback redirects back with ?token=<jwt> — capture it, store the
+    // bearer, and scrub it from the URL before anything renders.
+    const params = new URLSearchParams(window.location.search)
+    const t = params.get('token')
+    if (t) {
+      setJwt(t)
+      params.delete('token')
+      const qs = params.toString()
+      window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''))
+    }
     api
       .whoami()
       .then(() => setAuth('in'))

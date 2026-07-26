@@ -207,6 +207,20 @@ export interface WhoAmI {
   require_signed_images: boolean
 }
 
+export interface PanelUser {
+  id: number | null
+  username: string
+  email: string | null
+  full_name: string | null
+  role: string
+  is_active: boolean
+  has_password?: boolean
+  auth?: 'sso' | 'password' | 'invited'
+  created_at?: string | null
+  last_login_at?: string | null
+  via?: 'user' | 'token'
+}
+
 export interface FederationConfig {
   enabled: boolean
   provider: string

@@ -30,6 +30,7 @@ from orchestrator.api import (
     state_credentials,
     status_api,
     tenants,
+    users,
 )
 from orchestrator.db import init_db
 
@@ -180,6 +181,7 @@ def create_app() -> FastAPI:
     app.include_router(fleet.router)
     app.include_router(gis.router)
     app.include_router(auth_sso.router)
+    app.include_router(users.router)
     app.include_router(offload.router)
     app.include_router(backups_api.router)
     app.include_router(platform.router)
