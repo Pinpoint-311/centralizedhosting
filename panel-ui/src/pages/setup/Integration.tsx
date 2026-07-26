@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Terminal } from 'lucide-react'
 import { api } from '../../lib/api'
 import type { KeyCatalog, SecretOut } from '../../lib/types'
 import { Spinner } from '../../components/ui'
@@ -22,7 +23,17 @@ export function Integration() {
   }, [])
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
+          <Terminal className="w-6 h-6" /> Setup &amp; Integration
+        </h1>
+        <p className="text-white/50 text-sm mt-1">
+          Single sign-on, the MFA sidecar, and the shared API credentials this platform provides to
+          the fleet.
+        </p>
+      </div>
+
       {can('admin') && <SsoFederation />}
       {can('admin') && <SsoSidecar />}
       {!catalog ? <Spinner /> : <ApiKeysHub catalog={catalog} creds={creds} onChange={loadCreds} />}

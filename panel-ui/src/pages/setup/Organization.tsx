@@ -50,15 +50,30 @@ export function Organization() {
   }
 
   return (
-    <div className="space-y-4 max-w-3xl">
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
+            <Landmark className="w-6 h-6" /> Organization
+          </h1>
+          <p className="text-white/50 text-sm mt-1">
+            Who runs this hosting program — a state, county, city, university, or agency. Used on
+            compliance exports and operator-facing screens. This is not a hosted municipality.
+          </p>
+        </div>
+        <Button
+          className="w-full sm:w-auto"
+          onClick={save}
+          isLoading={saving}
+          disabled={!can('admin')}
+          leftIcon={<Save className="w-4 h-4" />}
+        >
+          {can('admin') ? 'Save Changes' : 'Admin role required'}
+        </Button>
+      </div>
+
       <Card>
-        <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
-          <Landmark className="w-5 h-5" /> Hosting organization
-        </h3>
-        <p className="text-sm text-white/50 mb-4">
-          Who runs this hosting program — a state, county, city, university, or agency. Used on
-          compliance exports and operator-facing screens. This is not a hosted municipality.
-        </p>
+        <h3 className="font-semibold text-white mb-4">Identity</h3>
         <div className="grid sm:grid-cols-2 gap-4">
           <Input label="Legal name" placeholder="e.g. NJ Office of Innovation" value={cfg.org_legal_name || ''} onChange={(e) => set('org_legal_name', e.target.value)} />
           <Select label="Organization type" value={cfg.org_type} onChange={(e) => set('org_type', e.target.value)} options={ORG_TYPES} />
@@ -78,12 +93,6 @@ export function Organization() {
           <Textarea label="Mailing address" value={cfg.address || ''} onChange={(e) => set('address', e.target.value)} />
         </div>
       </Card>
-
-      <div className="flex justify-end max-w-3xl">
-        <Button onClick={save} isLoading={saving} disabled={!can('admin')} leftIcon={<Save className="w-4 h-4" />}>
-          {can('admin') ? 'Save organization' : 'Admin role required'}
-        </Button>
-      </div>
     </div>
   )
 }

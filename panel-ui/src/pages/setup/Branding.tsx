@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Save, Palette } from 'lucide-react'
+import { Save, Sparkles, X } from 'lucide-react'
 import { api } from '../../lib/api'
 import type { PlatformConfig } from '../../lib/types'
-import { Badge, Button, Card, Input, Spinner } from '../../components/ui'
-import { Logo } from '../../components/Logo'
+import { Button, Card, Input, Spinner } from '../../components/ui'
 import { useToast } from '../../components/Toast'
 import { useSession } from '../../lib/session'
 
@@ -38,57 +37,123 @@ export function Branding() {
     }
   }
 
+  const color = cfg.primary_color || '#6366f1'
+
   return (
-    <div className="space-y-4 max-w-3xl">
-      <Card>
-        <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
-          <Palette className="w-5 h-5" /> Platform branding
-        </h3>
-        <p className="text-sm text-white/50 mb-4">
-          How this control plane presents itself — the name and tagline shown in the sidebar, the
-          login screen, and the browser. This is your hosting program's brand, not a municipality's.
-        </p>
-        <div className="grid sm:grid-cols-2 gap-4">
-          <Input label="Platform name" placeholder="e.g. New Jersey 311 Cloud" value={cfg.platform_name} onChange={(e) => set('platform_name', e.target.value)} />
-          <Input label="Tagline" placeholder="Hosting Control Plane" value={cfg.tagline} onChange={(e) => set('tagline', e.target.value)} />
-          <Input label="Logo URL (optional)" placeholder="https://…/logo.svg" value={cfg.logo_url || ''} onChange={(e) => set('logo_url', e.target.value)} helperText="Square image works best; falls back to the default mark." />
-          <div>
-            <label className="block text-sm font-medium text-white/70 mb-1.5">Primary color</label>
-            <div className="flex items-center gap-2">
-              <input type="color" value={cfg.primary_color || '#6366f1'} onChange={(e) => set('primary_color', e.target.value)} className="h-11 w-14 rounded-lg bg-transparent border border-white/15 cursor-pointer" />
-              <Input className="flex-1" placeholder="#6366f1" value={cfg.primary_color || ''} onChange={(e) => set('primary_color', e.target.value)} />
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold text-white">Branding Settings</h1>
+          <p className="text-white/50 text-sm mt-1">
+            How this control plane presents itself — the name, tagline, and mark shown in the
+            sidebar, login screen, and browser. This is your hosting program's brand, not a
+            municipality's.
+          </p>
+        </div>
+        <Button
+          className="w-full sm:w-auto"
+          leftIcon={<Save className="w-4 h-4" />}
+          onClick={save}
+          isLoading={saving}
+          disabled={!can('admin')}
+        >
+          {can('admin') ? 'Save Changes' : 'Admin role required'}
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+        <Card>
+          <div className="space-y-4">
+            <Input
+              label="Platform Name"
+              value={cfg.platform_name || ''}
+              placeholder="e.g. New Jersey 311 Cloud"
+              onChange={(e) => set('platform_name', e.target.value)}
+            />
+            <Input
+              label="Tagline"
+              value={cfg.tagline || ''}
+              placeholder="Hosting Control Plane"
+              onChange={(e) => set('tagline', e.target.value)}
+            />
+            <div>
+              <label className="block text-sm font-medium text-white/70 mb-2">Logo</label>
+              <div className="flex items-center gap-3">
+                {cfg.logo_url && <img src={cfg.logo_url} alt="Logo" className="h-10 rounded" />}
+                <Input
+                  className="flex-1"
+                  value={cfg.logo_url || ''}
+                  placeholder="https://…/logo.svg"
+                  onChange={(e) => set('logo_url', e.target.value)}
+                />
+                {cfg.logo_url && (
+                  <button
+                    onClick={() => set('logo_url', '')}
+                    className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+                    title="Remove logo"
+                    aria-label="Remove logo"
+                  >
+                    <X className="w-4 h-4" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-white/40 mt-1.5">
+                Square image works best; falls back to the default mark.
+              </p>
+            </div>
+            <Input
+              label="Support Email"
+              type="email"
+              value={cfg.support_email || ''}
+              placeholder="support@yourprogram.gov"
+              onChange={(e) => set('support_email', e.target.value)}
+            />
+            <div>
+              <label className="block text-sm font-medium text-white/70 mb-2">Primary Color</label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  value={color}
+                  onChange={(e) => set('primary_color', e.target.value)}
+                  className="w-12 h-12 rounded-lg cursor-pointer bg-transparent"
+                  aria-label="Primary color picker"
+                />
+                <Input
+                  className="flex-1"
+                  value={color}
+                  onChange={(e) => set('primary_color', e.target.value)}
+                />
+              </div>
             </div>
           </div>
-          <Input label="Support email (optional)" type="email" placeholder="support@yourprogram.gov" value={cfg.support_email || ''} onChange={(e) => set('support_email', e.target.value)} />
-        </div>
-        <div className="flex justify-end mt-4">
-          <Button onClick={save} isLoading={saving} disabled={!can('admin')} leftIcon={<Save className="w-4 h-4" />}>
-            {can('admin') ? 'Save branding' : 'Admin role required'}
-          </Button>
-        </div>
-      </Card>
+        </Card>
 
-      <Card>
-        <h3 className="font-semibold text-white mb-3">Preview</h3>
-        <div className="flex items-center gap-3 p-4 rounded-2xl bg-white/[0.03] border border-white/10 w-fit">
-          {cfg.logo_url ? (
-            <img src={cfg.logo_url} alt="" className="w-9 h-9 rounded-xl object-cover" />
-          ) : (
-            <Logo size={38} />
-          )}
-          <div>
-            <div className="font-semibold text-white leading-tight">{cfg.platform_name || 'Pinpoint 311'}</div>
-            <div className="text-xs text-white/50">{cfg.tagline || 'Hosting Control Plane'}</div>
+        <Card>
+          <h3 className="text-lg font-semibold text-white mb-4">Preview</h3>
+          <div className="p-4 rounded-xl bg-black/20 space-y-4">
+            {cfg.logo_url ? (
+              <img src={cfg.logo_url} alt="Logo preview" className="h-16" />
+            ) : (
+              <div
+                className="w-16 h-16 rounded-2xl flex items-center justify-center"
+                style={{ background: `linear-gradient(135deg, ${color}, ${color}dd)` }}
+              >
+                <Sparkles className="w-8 h-8 text-white" />
+              </div>
+            )}
+            <div>
+              <div className="text-lg font-bold text-white">{cfg.platform_name || 'Pinpoint 311'}</div>
+              <div className="text-sm text-white/50">{cfg.tagline || 'Hosting Control Plane'}</div>
+            </div>
+            <button
+              className="px-4 py-2 rounded-xl text-white text-sm font-medium"
+              style={{ background: color }}
+            >
+              Sample Button
+            </button>
           </div>
-        </div>
-        {cfg.primary_color && (
-          <div className="mt-3 flex items-center gap-2">
-            <span className="text-xs text-white/40">Accent</span>
-            <span className="inline-block w-6 h-6 rounded-md border border-white/15" style={{ background: cfg.primary_color }} />
-            <Badge>{cfg.primary_color}</Badge>
-          </div>
-        )}
-      </Card>
+        </Card>
+      </div>
     </div>
   )
 }

@@ -33,6 +33,13 @@ export function SystemHealth() {
 
   return (
     <div className="space-y-4">
+      <div className="mb-2">
+        <h1 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
+          <Activity className="w-6 h-6" /> System Health
+        </h1>
+        <p className="text-white/50 text-sm mt-1">Live status of the control plane itself.</p>
+      </div>
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${allOk ? 'bg-green-500/15 text-green-300' : 'bg-red-500/15 text-red-300'}`}>

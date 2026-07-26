@@ -18,7 +18,16 @@ export function Users() {
   const roleEntries = Object.entries(data.role_map)
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
+          <UsersIcon className="w-6 h-6" /> Users
+        </h1>
+        <p className="text-white/50 text-sm mt-1">
+          Operators and the identity-provider group&nbsp;&rarr;&nbsp;role mapping that governs access.
+        </p>
+      </div>
+
       <Card>
         <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
           <ShieldCheck className="w-5 h-5" /> How access works
