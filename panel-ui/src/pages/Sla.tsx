@@ -42,6 +42,7 @@ export function Sla() {
       <PageToolbar>
         <div className="w-36">
           <Select
+            aria-label="Time range"
             value={String(days)}
             onChange={(e) => setDays(Number(e.target.value))}
             options={[{ value: '7', label: 'Last 7 days' }, { value: '30', label: 'Last 30 days' }, { value: '90', label: 'Last 90 days' }]}

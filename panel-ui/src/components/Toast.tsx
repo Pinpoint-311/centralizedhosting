@@ -30,11 +30,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastCtx.Provider value={{ push }}>
       {children}
-      <div className="fixed bottom-6 right-6 z-[100] flex flex-col gap-2 w-80">
+      <div
+        className="fixed bottom-6 right-6 z-[100] flex flex-col gap-2 w-80"
+        role="region"
+        aria-label="Notifications"
+        aria-live="polite"
+        aria-atomic="false"
+      >
         <AnimatePresence>
           {toasts.map((t) => (
             <motion.div
               key={t.id}
+              role={t.kind === 'error' ? 'alert' : 'status'}
               initial={{ opacity: 0, x: 40 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 40 }}

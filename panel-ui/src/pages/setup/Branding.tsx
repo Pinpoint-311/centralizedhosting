@@ -6,6 +6,21 @@ import { Button, Card, Input, Spinner } from '../../components/ui'
 import { useToast } from '../../components/Toast'
 import { useSession } from '../../lib/session'
 
+// Pick black or white text for a background so the label stays legible (and
+// meets WCAG contrast) whatever accent color the operator chooses. Uses the
+// WCAG relative-luminance threshold (~0.179).
+function readableOn(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return '#fff'
+  const n = parseInt(m[1], 16)
+  const chan = (c: number) => {
+    const s = c / 255
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+  }
+  const lum = 0.2126 * chan((n >> 16) & 255) + 0.7152 * chan((n >> 8) & 255) + 0.0722 * chan(n & 255)
+  return lum > 0.179 ? '#000' : '#fff'
+}
+
 export function Branding() {
   const toast = useToast()
   const { can } = useSession()
@@ -79,9 +94,10 @@ export function Branding() {
             <div>
               <label className="block text-sm font-medium text-white/70 mb-2">Logo</label>
               <div className="flex items-center gap-3">
-                {cfg.logo_url && <img src={cfg.logo_url} alt="Logo" className="h-10 rounded" />}
+                {cfg.logo_url && <img src={cfg.logo_url} alt="Current logo" className="h-10 rounded" />}
                 <Input
                   className="flex-1"
+                  aria-label="Logo URL"
                   value={cfg.logo_url || ''}
                   placeholder="https://…/logo.svg"
                   onChange={(e) => set('logo_url', e.target.value)}
@@ -120,6 +136,7 @@ export function Branding() {
                 />
                 <Input
                   className="flex-1"
+                  aria-label="Primary color hex value"
                   value={color}
                   onChange={(e) => set('primary_color', e.target.value)}
                 />
@@ -146,8 +163,8 @@ export function Branding() {
               <div className="text-sm text-white/50">{cfg.tagline || 'Hosting Control Plane'}</div>
             </div>
             <button
-              className="px-4 py-2 rounded-xl text-white text-sm font-medium"
-              style={{ background: color }}
+              className="px-4 py-2 rounded-xl text-sm font-medium"
+              style={{ background: color, color: readableOn(color) }}
             >
               Sample Button
             </button>

@@ -291,9 +291,9 @@ export function Announcements() {
         Posted to the public status page at <code className="text-white/70">/status</code> — maintenance windows and incidents.
       </p>
       <div className="flex flex-col sm:flex-row gap-2 mb-4">
-        <Input placeholder="e.g. Planned maintenance Saturday 2–4am ET" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <Input aria-label="Announcement text" placeholder="e.g. Planned maintenance Saturday 2–4am ET" value={title} onChange={(e) => setTitle(e.target.value)} />
         <div className="w-44 shrink-0">
-          <Select value={severity} onChange={(e) => setSeverity(e.target.value)} options={[
+          <Select aria-label="Announcement severity" value={severity} onChange={(e) => setSeverity(e.target.value)} options={[
             { value: 'info', label: 'Info' },
             { value: 'maintenance', label: 'Maintenance' },
             { value: 'incident', label: 'Incident' },
@@ -418,9 +418,9 @@ export function SsoFederation() {
             {rows.length === 0 && <p className="text-xs text-white/40">No mappings — everyone who signs in gets the default role above.</p>}
             {rows.map((r, i) => (
               <div key={i} className="flex gap-2 items-center">
-                <Input className="flex-1" placeholder="IdP group (e.g. pp311-admins)" value={r.group} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, group: e.target.value } : x))} />
+                <Input className="flex-1" aria-label="IdP group name" placeholder="IdP group (e.g. pp311-admins)" value={r.group} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, group: e.target.value } : x))} />
                 <div className="w-40">
-                  <Select value={r.role} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, role: e.target.value as Role } : x))} options={PANEL_ROLES.map((x) => ({ value: x, label: x }))} />
+                  <Select aria-label="Role for this group" value={r.role} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, role: e.target.value as Role } : x))} options={PANEL_ROLES.map((x) => ({ value: x, label: x }))} />
                 </div>
                 <button onClick={() => setRows(rows.filter((_, j) => j !== i))} className="text-white/40 hover:text-red-300 shrink-0" aria-label="Remove mapping"><TrashIcon className="w-4 h-4" /></button>
               </div>

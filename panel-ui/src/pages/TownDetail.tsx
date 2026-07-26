@@ -1154,7 +1154,7 @@ function DangerZone({ tenant, onDone }: { tenant: Tenant; onDone: () => void }) 
           This destroys the town's KMS wrapping key. Type the slug{' '}
           <code className="text-white bg-white/10 rounded px-1.5 py-0.5">{tenant.slug}</code> to confirm.
         </p>
-        <Input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={tenant.slug} autoFocus />
+        <Input aria-label="Type the town slug to confirm" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={tenant.slug} autoFocus />
         <div className="flex justify-end gap-2 mt-6">
           <Button variant="ghost" onClick={() => setOpen(false)}>
             Cancel
@@ -1251,7 +1251,7 @@ function PolicyTab({ tenant }: { tenant: Tenant }) {
         </div>
         {can('approver') ? (
           <div className="flex flex-col sm:flex-row gap-2 max-w-3xl">
-            <Input className="flex-1" placeholder="Reason (audited) — e.g. litigation hold, ticket #" value={holdReason} onChange={(e) => setHoldReason(e.target.value)} />
+            <Input className="flex-1" aria-label="Legal hold reason (audited)" placeholder="Reason (audited) — e.g. litigation hold, ticket #" value={holdReason} onChange={(e) => setHoldReason(e.target.value)} />
             {hold?.state_hold ? (
               <Button className="shrink-0 whitespace-nowrap" variant="secondary" onClick={() => toggleHold(false)}>Lift host hold</Button>
             ) : (
