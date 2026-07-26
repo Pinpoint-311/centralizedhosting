@@ -6,6 +6,7 @@ import { Spinner } from '../../components/ui'
 import { useToast } from '../../components/Toast'
 import { useSession } from '../../lib/session'
 import { ApiKeysHub, SsoFederation } from '../Settings'
+import { ServiceProviders } from './ServiceProviders'
 
 export function Integration() {
   const toast = useToast()
@@ -34,6 +35,7 @@ export function Integration() {
       </div>
 
       {can('admin') && <SsoFederation />}
+      <ServiceProviders />
       {!catalog ? <Spinner /> : <ApiKeysHub catalog={catalog} creds={creds} onChange={loadCreds} />}
     </div>
   )

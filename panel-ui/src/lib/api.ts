@@ -14,9 +14,11 @@ import type {
   OsmResult,
   LegalHold,
   ManagedField,
+  CloudProfileState,
   Operators,
   PanelUser,
   PlatformConfig,
+  ProviderCatalog,
   ProvisionJob,
   PublicStatus,
   SystemConfig,
@@ -191,6 +193,15 @@ export const api = {
   getPlatformConfig: () => req<PlatformConfig>('GET', '/api/platform/config'),
   putPlatformConfig: (body: Partial<PlatformConfig>) =>
     req<PlatformConfig>('PUT', '/api/platform/config', body),
+  // cloud service providers (AI / translation / identity) + cloud profiles
+  providerCatalog: (cap: string) => req<ProviderCatalog>('GET', `/api/providers/${cap}/catalog`),
+  saveProvider: (cap: string, body: { provider: string; model?: string; credentials: Record<string, string> }) =>
+    req<ProviderCatalog>('POST', `/api/providers/${cap}/save`, body),
+  testProvider: (cap: string) => req<{ ok: boolean; message: string }>('POST', `/api/providers/${cap}/test`),
+  cloudProfile: () => req<CloudProfileState>('GET', '/api/providers/cloud-profile'),
+  applyCloudProfile: (profile: string, apply_identity: boolean) =>
+    req<CloudProfileState>('POST', '/api/providers/cloud-profile', { profile, apply_identity }),
+
   systemHealth: () => req<SystemHealth>('GET', '/api/system/health'),
   systemConfig: () => req<SystemConfig>('GET', '/api/system/config'),
   operators: () => req<Operators>('GET', '/api/operators'),

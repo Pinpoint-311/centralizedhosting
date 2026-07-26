@@ -103,22 +103,25 @@ def reencrypt_all_secrets(db: Session) -> dict[str, int]:
     ``{"reencrypted": n, "skipped": s}``.
     """
     from orchestrator import pii_crypto
-    from orchestrator.models import PlatformSecret, StateCredential
+    from orchestrator.models import PlatformSecret, StateCredential, SystemSetting
 
     # Drop the cached DEK so the re-encrypt wraps a fresh one under the current key.
     pii_crypto.clear_caches()
 
     n = skipped = 0
-    for model in (PlatformSecret, StateCredential):
+    # (model, ciphertext attribute) — SystemSetting stores under value_encrypted.
+    targets = [(PlatformSecret, "encrypted_value"), (StateCredential, "encrypted_value"),
+               (SystemSetting, "value_encrypted")]
+    for model, attr in targets:
         for row in db.execute(select(model)).scalars().all():
             try:
-                plaintext = decrypt_value(row.encrypted_value)
+                plaintext = decrypt_value(getattr(row, attr))
             except Exception:  # noqa: BLE001 — undecryptable row: report, don't abort
                 skipped += 1
-                logger.warning("reencrypt: skipping undecryptable %s id=%s",
-                               model.__name__, getattr(row, "id", "?"))
+                logger.warning("reencrypt: skipping undecryptable %s key=%s",
+                               model.__name__, getattr(row, "key_name", getattr(row, "id", "?")))
                 continue
-            row.encrypted_value = encrypt_value(plaintext)
+            setattr(row, attr, encrypt_value(plaintext))
             n += 1
     db.commit()
     return {"reencrypted": n, "skipped": skipped}

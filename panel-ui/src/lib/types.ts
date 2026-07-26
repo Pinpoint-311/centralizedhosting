@@ -207,6 +207,42 @@ export interface WhoAmI {
   require_signed_images: boolean
 }
 
+export interface ProviderField {
+  key: string
+  label: string
+  secret: boolean
+}
+export interface ProviderInfo {
+  provider: string
+  name: string
+  description?: string
+  boundary?: string
+  models?: { id: string; label: string }[]
+  default_model?: string
+  credential_fields: ProviderField[]
+  field_help?: Record<string, string>
+}
+export interface ProviderCatalog {
+  capability: string
+  providers: ProviderInfo[]
+  selected: string
+  model?: string
+  configured: Record<string, boolean>
+  values: Record<string, string>
+}
+export interface CloudProfileState {
+  current: string | null
+  components: { ai: string; translation: string; identity: string }
+  profiles: {
+    id: string
+    label: string
+    boundary: string
+    ai: string
+    translation: string
+    identity_recommended: string
+  }[]
+}
+
 export interface PanelUser {
   id: number | null
   username: string

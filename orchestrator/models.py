@@ -157,6 +157,21 @@ class PlatformSecret(Base):
     tenant: Mapped[Tenant] = relationship(back_populates="secrets")
 
 
+class SystemSetting(Base):
+    """Global key/value store for hosting-platform configuration — mirrors the
+    Pinpoint 311 app's SystemSecret. Holds the selected cloud service providers
+    (AI / translation / identity) and their credentials. Every value is envelope-
+    encrypted at rest with the panel key; ``is_secret`` marks values that are
+    never returned to the browser (only their "set" state is)."""
+
+    __tablename__ = "system_settings"
+
+    key_name: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value_encrypted: Mapped[str] = mapped_column(Text)
+    is_secret: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class StateCredential(Base):
     """Shared state credential pool — entered once, injected into every town
     whose key-responsibility matrix sets the owning service to ``state_shared``.
