@@ -41,9 +41,10 @@ def reencrypt_secrets(
     the KMS key or switching provider. Admin/approver only."""
     from orchestrator.encryption import active_backend
 
-    count = provisioner.reencrypt_all_secrets(db)
+    result = provisioner.reencrypt_all_secrets(db)
     backend = active_backend()
     audit.record(db, actor, "maintenance.secrets_reencrypted", None,
-                 count=count, kms_backend=backend)
+                 count=result["reencrypted"], skipped=result["skipped"],
+                 kms_backend=backend)
     db.commit()
-    return {"reencrypted": count, "kms_backend": backend}
+    return {**result, "kms_backend": backend}

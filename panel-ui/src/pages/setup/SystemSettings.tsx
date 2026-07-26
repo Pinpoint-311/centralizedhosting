@@ -55,7 +55,8 @@ export function SystemSettings() {
     setBusy('rotate')
     try {
       const r = await api.reencryptSecrets()
-      toast.push(`Re-encrypted ${r.reencrypted} secret(s) (KMS: ${r.kms_backend})`)
+      const skipped = r.skipped ? `, skipped ${r.skipped} undecryptable` : ''
+      toast.push(`Re-encrypted ${r.reencrypted} secret(s)${skipped} (KMS: ${r.kms_backend})`)
     } catch (e) {
       toast.push((e as Error).message, 'error')
     } finally { setBusy('') }

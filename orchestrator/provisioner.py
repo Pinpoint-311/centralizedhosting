@@ -90,26 +90,38 @@ def set_state_credential(db: Session, key: str, value: str) -> None:
     db.flush()
 
 
-def reencrypt_all_secrets(db: Session) -> int:
+def reencrypt_all_secrets(db: Session) -> dict[str, int]:
     """Re-encrypt every stored secret under the current key. Run after rotating
     the cloud KMS key (or switching KMS provider) to migrate all ciphertext to a
     freshly-wrapped data key and away from any legacy scheme. Idempotent and safe
-    to re-run. Returns the number of rows rewritten."""
+    to re-run.
+
+    Rows that can't be decrypted (e.g. written under a superseded
+    PANEL_SECRET_KEY) are left untouched and counted as ``skipped`` rather than
+    aborting the whole migration — this is a recovery tool, so it degrades
+    gracefully instead of failing closed on one bad row. Returns
+    ``{"reencrypted": n, "skipped": s}``.
+    """
     from orchestrator import pii_crypto
     from orchestrator.models import PlatformSecret, StateCredential
 
     # Drop the cached DEK so the re-encrypt wraps a fresh one under the current key.
     pii_crypto.clear_caches()
 
-    n = 0
-    for row in db.execute(select(PlatformSecret)).scalars().all():
-        row.encrypted_value = encrypt_value(decrypt_value(row.encrypted_value))
-        n += 1
-    for row in db.execute(select(StateCredential)).scalars().all():
-        row.encrypted_value = encrypt_value(decrypt_value(row.encrypted_value))
-        n += 1
+    n = skipped = 0
+    for model in (PlatformSecret, StateCredential):
+        for row in db.execute(select(model)).scalars().all():
+            try:
+                plaintext = decrypt_value(row.encrypted_value)
+            except Exception:  # noqa: BLE001 — undecryptable row: report, don't abort
+                skipped += 1
+                logger.warning("reencrypt: skipping undecryptable %s id=%s",
+                               model.__name__, getattr(row, "id", "?"))
+                continue
+            row.encrypted_value = encrypt_value(plaintext)
+            n += 1
     db.commit()
-    return n
+    return {"reencrypted": n, "skipped": skipped}
 
 
 def _secrets_bundle(db: Session, tenant: Tenant) -> dict[str, str]:

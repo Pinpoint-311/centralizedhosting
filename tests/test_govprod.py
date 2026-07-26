@@ -113,7 +113,9 @@ def test_key_rotation_reencrypts_and_still_decrypts(client, db):
     # Rotation re-encrypts every stored secret under a freshly-wrapped data key.
     r = client.post("/api/maintenance/reencrypt-secrets", headers=HEADERS)
     assert r.status_code == 200
-    assert r.json()["kms_backend"] == "local"  # no cloud KMS configured in tests
+    body = r.json()
+    assert body["kms_backend"] == "local"  # no cloud KMS configured in tests
+    assert body["reencrypted"] >= 1 and body["skipped"] == 0
 
     # the stored ciphertext is the app-uniform envelope scheme and still decrypts
     from orchestrator.models import PlatformSecret
@@ -125,6 +127,30 @@ def test_key_rotation_reencrypts_and_still_decrypts(client, db):
     ).scalar_one()
     assert row.encrypted_value.startswith("pii2:")
     assert decrypt_value(row.encrypted_value) == "AIza-rotate-me"
+
+
+def test_key_rotation_skips_undecryptable_rows_instead_of_failing(client, db):
+    """A secret written under a superseded key can't be decrypted. Re-encrypt
+    must skip and report it, not 500 the whole migration."""
+    tenant = make_tenant(client, slug="corrupt")
+    client.put(
+        f"/api/tenants/{tenant['id']}/secrets/GOOGLE_MAPS_API_KEY",
+        json={"value": "AIza-good"},
+        headers=HEADERS,
+    )
+    # Plant an undecryptable ciphertext directly in the store.
+    from orchestrator.models import PlatformSecret
+    from sqlalchemy import select
+
+    bad = db.execute(
+        select(PlatformSecret).where(PlatformSecret.key_name == "GOOGLE_MAPS_API_KEY")
+    ).scalar_one()
+    bad.encrypted_value = "v1:gAAAAABmnot-a-real-token-and-cannot-decrypt"
+    db.commit()
+
+    r = client.post("/api/maintenance/reencrypt-secrets", headers=HEADERS)
+    assert r.status_code == 200  # degrades gracefully, no 500
+    assert r.json()["skipped"] >= 1
 
 
 # ---- Signed-image supply-chain gate -----------------------------------------
