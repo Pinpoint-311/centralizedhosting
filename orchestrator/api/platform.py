@@ -143,6 +143,15 @@ def system_config(_: str = Depends(require_operator)):
     }
 
 
+@router.get("/system/proactive")
+def system_proactive(db: Session = Depends(get_db), _: str = Depends(require_panel_token)):
+    """Leading-indicator health — warns before something fails (disk, memory,
+    database, backup freshness, audit chain). Ported from the app's engine."""
+    from orchestrator import proactive_health
+
+    return proactive_health.evaluate(db)
+
+
 @router.get("/system/health")
 def system_health(db: Session = Depends(get_db), _: str = Depends(require_panel_token)):
     from orchestrator import encryption

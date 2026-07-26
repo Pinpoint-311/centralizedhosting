@@ -207,6 +207,21 @@ export interface WhoAmI {
   require_signed_images: boolean
 }
 
+export interface ProactiveCheck {
+  key: string
+  label: string
+  status: 'ok' | 'warning' | 'critical' | 'unknown'
+  value: number | null
+  message: string
+  action: string
+}
+export interface ProactiveHealth {
+  overall_status: 'ok' | 'warning' | 'critical'
+  summary: { level: string; label: string; detail: string }
+  checks: ProactiveCheck[]
+  timestamp: string
+}
+
 export interface ProviderField {
   key: string
   label: string

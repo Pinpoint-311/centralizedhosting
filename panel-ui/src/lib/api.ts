@@ -18,6 +18,7 @@ import type {
   Operators,
   PanelUser,
   PlatformConfig,
+  ProactiveHealth,
   ProviderCatalog,
   ProvisionJob,
   PublicStatus,
@@ -203,6 +204,7 @@ export const api = {
     req<CloudProfileState>('POST', '/api/providers/cloud-profile', { profile, apply_identity }),
 
   systemHealth: () => req<SystemHealth>('GET', '/api/system/health'),
+  systemProactive: () => req<ProactiveHealth>('GET', '/api/system/proactive'),
   systemConfig: () => req<SystemConfig>('GET', '/api/system/config'),
   operators: () => req<Operators>('GET', '/api/operators'),
 
