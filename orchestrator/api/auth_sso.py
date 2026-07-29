@@ -27,6 +27,11 @@ from orchestrator.user_auth import create_access_token
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+# Why a sign-in was refused. The app distinguishes these, and so do we: an
+# operator who exists but is disabled needs a different fix from one who was
+# never added, and lumping them together sends everyone hunting the wrong thing.
+SSO_DENY_REASONS = ("no_email", "not_provisioned", "account_disabled")
+
 # In-memory login-state store (single-process panel). state -> context + expiry.
 _pending: dict[str, dict] = {}
 _STATE_TTL = 600  # seconds
@@ -124,26 +129,46 @@ def sso_callback(request: Request, db: Session = Depends(get_db),
     email = (claims.get("email") or "").strip().lower()
     sub = claims.get("sub")
 
+    # Auth events carry the caller's origin, as the app's do — the panel's audit
+    # log is its compliance artifact, and "who signed in from where" is the first
+    # question asked after an incident.
+    ip_address = request.client.host if request.client else "unknown"
+    user_agent = request.headers.get("user-agent", "unknown")
+
+    def deny(reason: str, username: str | None = None):
+        audit.record(db, username or actor, "auth.sso_denied", None,
+                     email=email or None, reason=reason,
+                     ip_address=ip_address, user_agent=user_agent)
+        db.commit()
+        return RedirectResponse(f"{front}/?sso_error={reason}", status_code=302)
+
+    # The app distinguishes these three outcomes, and so do we: telling a
+    # disabled operator "you aren't authorized, ask an admin to add you" sends
+    # both them and the admin looking for a row that already exists.
+    if not email:
+        return deny("no_email")
+
     # App model: the operator must already exist as a User, matched by email.
     # Identity is federated; access is granted explicitly (Setup → Users), never
     # auto-provisioned from IdP membership.
-    user = None
-    if email:
-        user = db.execute(
-            select(User).where(func.lower(User.email) == email)
-        ).scalar_one_or_none()
-    if user is None or not user.is_active:
-        audit.record(db, actor, "auth.sso_denied", None,
-                     email=email or None, reason="not_provisioned")
-        db.commit()
-        return RedirectResponse(f"{front}/?sso_error=not_provisioned", status_code=302)
+    user = db.execute(
+        select(User).where(func.lower(User.email) == email)
+    ).scalar_one_or_none()
+    if user is None:
+        return deny("not_provisioned")
+    if not user.is_active:
+        return deny("account_disabled", username=user.username)
 
     if sub:
         user.oidc_sub = sub
     if not user.full_name:
         user.full_name = claims.get("name") or claims.get("full_name")
     user.last_login_at = utcnow()
-    audit.record(db, user.username, "auth.sso_login", user.username, provider=cfg.provider)
+    audit.record(db, user.username, "auth.sso_login", user.username,
+                 provider=cfg.provider, ip_address=ip_address, user_agent=user_agent,
+                 # The app records the IdP's authentication-method reference so an
+                 # auditor can tell whether MFA was actually used.
+                 amr=claims.get("amr"))
     token = create_access_token({"sub": user.username, "role": user.role})
     db.commit()
 

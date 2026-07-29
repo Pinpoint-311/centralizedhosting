@@ -181,7 +181,7 @@ def _bootstrap_gate_open(db: Session) -> bool:
 
 
 @router.post("/auth/login")
-def login(body: LoginIn, db: Session = Depends(get_db)):
+def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     """First-run password sign-in, gated exactly like the app's bootstrap: it
     works only until an identity provider is configured. After that, operators
     sign in through SSO. Mints the app-style JWT bearer."""
@@ -200,7 +200,9 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
         raise HTTPException(403, "Account is disabled")
     user.last_login_at = utcnow()
     token = user_auth.create_access_token({"sub": user.username, "role": user.role})
-    audit.record(db, user.username, "user.login", user.username, method="password")
+    audit.record(db, user.username, "user.login", user.username, method="password",
+                 ip_address=(request.client.host if request.client else "unknown"),
+                 user_agent=request.headers.get("user-agent", "unknown"))
     db.commit()
     return {"access_token": token, "token_type": "bearer", "user": _out(user)}
 

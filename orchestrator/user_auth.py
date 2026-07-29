@@ -65,39 +65,74 @@ def bearer_token(request: Request) -> Optional[str]:
     return None
 
 
-def user_from_request(request: Request, db: Session) -> Optional[User]:
-    """Resolve the operator from a bearer JWT, or None if absent/invalid. Never
-    raises — callers that require a user use ``get_current_user`` instead."""
+def resolve_bearer_user(request: Request, db: Session) -> tuple[str, Optional[User]]:
+    """Resolve the operator from a bearer JWT.
+
+    Returns ``(state, user)`` where state is:
+      ``"none"``     — no usable bearer; the caller should try its other auth paths
+      ``"ok"``       — an active operator
+      ``"inactive"`` — a real account that has been disabled
+
+    The third case is separated because it is the one an admin can act on. If it
+    collapsed into "none", a deactivated operator's still-valid token would fall
+    through to the token/cookie paths and surface as "missing or invalid panel
+    token" — which sends them chasing a credential problem they don't have.
+    """
     token = bearer_token(request)
     if not token:
-        return None
+        return ("none", None)
     try:
         payload = jwt.decode(token, settings.panel_secret_key, algorithms=[_ALGO])
     except PyJWTError:
-        return None
+        return ("none", None)
     if payload.get("purpose"):
         # Single-purpose tokens (onboarding links) aren't session tokens.
-        return None
+        return ("none", None)
     username = payload.get("sub")
     if not username:
-        return None
+        return ("none", None)
     user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
-    if user is None or not user.is_active:
-        return None
-    return user
+    if user is None:
+        return ("none", None)
+    return ("ok", user) if user.is_active else ("inactive", user)
+
+
+def user_from_request(request: Request, db: Session) -> Optional[User]:
+    """The active operator behind a bearer JWT, or None. Never raises."""
+    state, user = resolve_bearer_user(request, db)
+    return user if state == "ok" else None
 
 
 # ---------------------------------------------------------------- dependencies
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
-    """Require a valid bearer JWT for a user-management route."""
-    user = user_from_request(request, db)
-    if user is None:
+    """Require a valid bearer JWT for a user-management route.
+
+    Mirrors the app's get_current_user, including its distinction between an
+    unusable token (401) and a real but deactivated account (403) — the second
+    is actionable by an admin, and collapsing both into 401 hides that.
+    """
+    token = bearer_token(request)
+    if not token:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
             "Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    payload = decode_token(token)  # raises 401 on a bad/expired token
+    if payload.get("purpose"):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "Single-purpose token cannot be used for API access",
+        )
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Could not validate credentials")
+    user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
+    if not user.is_active:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Inactive user")
     return user
 
 

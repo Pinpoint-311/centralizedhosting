@@ -20,6 +20,8 @@ const SSO_ERRORS: Record<string, string> = {
     verification_failed: 'We could not verify your identity provider response.',
     not_configured: 'Single sign-on is not configured.',
     not_provisioned: 'Your account is not authorized. Ask an admin to add you under Setup → Users.',
+    account_disabled: 'Your account is disabled. Ask an admin to re-enable it under Setup → Users.',
+    no_email: 'Your identity provider did not return an email address, so we cannot match your account.',
 }
 
 export function TokenGate({ onAuthed }: { onAuthed: () => void }) {

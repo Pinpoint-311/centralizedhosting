@@ -114,12 +114,16 @@ def require_role(minimum: str):
 
     def dependency(request: Request, x_panel_token: str = Header(default=""),
                    db: Session = Depends(get_db)) -> str:
-        from orchestrator.user_auth import user_from_request
+        from orchestrator.user_auth import resolve_bearer_user
 
         # 1) App-style bearer JWT for a managed User (SSO- or password-minted).
         #    Single role: every active user is admin-equivalent.
-        user = user_from_request(request, db)
-        if user is not None:
+        state, user = resolve_bearer_user(request, db)
+        if state == "inactive":
+            # Say so plainly rather than falling through to the other auth paths
+            # and reporting a credential problem the operator doesn't have.
+            raise HTTPException(403, "Inactive user")
+        if state == "ok" and user is not None:
             actor, role = user.username, (user.role if user.role in ROLES else "admin")
         else:
             # 2) SSO session cookie (if present and valid) authenticates on its own.
