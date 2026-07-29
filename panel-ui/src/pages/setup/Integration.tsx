@@ -6,7 +6,7 @@ import { Spinner } from '../../components/ui'
 import { useToast } from '../../components/Toast'
 import { useSession } from '../../lib/session'
 import { ApiKeysHub, SsoFederation } from '../Settings'
-import { ServiceProviders } from './ServiceProviders'
+import ServiceProviders from './ServiceProviders'
 
 export function Integration() {
   const toast = useToast()

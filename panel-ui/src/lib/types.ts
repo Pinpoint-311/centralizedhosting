@@ -222,40 +222,95 @@ export interface ProactiveHealth {
   timestamp: string
 }
 
-export interface ProviderField {
+// Service-provider types — the app's contract verbatim, so the ported
+// ServiceProviders component compiles unchanged against the control plane.
+export interface ProviderFieldSpec {
   key: string
   label: string
-  secret: boolean
+  secret?: boolean
 }
+
+export interface ProviderModelSpec {
+  id: string
+  label: string
+  discovered?: boolean // newly found live, not in the curated list
+}
+
 export interface ProviderInfo {
   provider: string
   name: string
   description?: string
   boundary?: string
-  models?: { id: string; label: string }[]
+  models?: ProviderModelSpec[]
   default_model?: string
-  credential_fields: ProviderField[]
+  credential_fields: ProviderFieldSpec[]
   field_help?: Record<string, string>
+  models_source?: 'live' | 'curated'
+  models_fetched_at?: number | null // epoch seconds
 }
+
 export interface ProviderCatalog {
-  capability: string
+  current_provider: string
+  default_provider?: string
+  current_model?: string | null
+  current_model_available?: boolean
+  configured?: Record<string, boolean>
   providers: ProviderInfo[]
-  selected: string
-  model?: string
-  configured: Record<string, boolean>
-  values: Record<string, string>
 }
+
+export interface AIModelRefreshResult {
+  provider: string
+  models: ProviderModelSpec[]
+  source: 'live' | 'curated'
+  fetched_at?: number | null
+  current_model?: string | null
+  current_model_available?: boolean
+}
+
+export interface ProviderSave {
+  provider: string
+  model?: string
+  settings?: Record<string, string>
+}
+
+export interface CloudProfileOption {
+  id: string
+  label: string
+  boundary: string
+  ai: string
+  translation: string
+  secrets: string
+  kms: string
+  email: string
+  sms: string
+  identity_recommended: string
+}
+
+export interface CloudProfileComponents {
+  ai: string
+  translation: string
+  secrets: string
+  kms: string
+  identity: string
+  email: string
+  sms: string
+}
+
 export interface CloudProfileState {
-  current: string | null
-  components: { ai: string; translation: string; identity: string }
-  profiles: {
-    id: string
-    label: string
-    boundary: string
-    ai: string
-    translation: string
-    identity_recommended: string
-  }[]
+  profile: 'google' | 'azure' | 'aws' | 'mixed'
+  managed: boolean
+  components: CloudProfileComponents
+  maps: { provider: string; locked: boolean; label: string }
+  profiles: CloudProfileOption[]
+}
+
+export interface CloudProfileResult {
+  ok: boolean
+  profile: string
+  components: { ai: string; translation: string; secrets: string; kms: string; email: string; sms: string }
+  identity_recommended: string
+  identity_applied: boolean
+  warnings: string[]
 }
 
 export interface PanelUser {

@@ -14,12 +14,15 @@ import type {
   OsmResult,
   LegalHold,
   ManagedField,
+  AIModelRefreshResult,
+  CloudProfileResult,
   CloudProfileState,
   Operators,
   PanelUser,
   PlatformConfig,
   ProactiveHealth,
   ProviderCatalog,
+  ProviderSave,
   ProvisionJob,
   PublicStatus,
   SystemConfig,
@@ -194,14 +197,19 @@ export const api = {
   getPlatformConfig: () => req<PlatformConfig>('GET', '/api/platform/config'),
   putPlatformConfig: (body: Partial<PlatformConfig>) =>
     req<PlatformConfig>('PUT', '/api/platform/config', body),
-  // cloud service providers (AI / translation / identity) + cloud profiles
-  providerCatalog: (cap: string) => req<ProviderCatalog>('GET', `/api/providers/${cap}/catalog`),
-  saveProvider: (cap: string, body: { provider: string; model?: string; credentials: Record<string, string> }) =>
-    req<ProviderCatalog>('POST', `/api/providers/${cap}/save`, body),
-  testProvider: (cap: string) => req<{ ok: boolean; message: string }>('POST', `/api/providers/${cap}/test`),
-  cloudProfile: () => req<CloudProfileState>('GET', '/api/providers/cloud-profile'),
-  applyCloudProfile: (profile: string, apply_identity: boolean) =>
-    req<CloudProfileState>('POST', '/api/providers/cloud-profile', { profile, apply_identity }),
+  // Service providers (AI / translation / identity) — same method names and
+  // shapes as the app's api service; only the URL prefix differs.
+  getProviderCatalog: (capability: 'ai' | 'translation' | 'identity') =>
+    req<ProviderCatalog>('GET', `/api/providers/${capability}/catalog`),
+  refreshAIModels: (provider: string) =>
+    req<AIModelRefreshResult>('POST', '/api/providers/ai/models/refresh', { provider }),
+  saveProvider: (capability: string, data: ProviderSave) =>
+    req<{ ok: boolean; provider: string }>('POST', `/api/providers/${capability}/save`, data),
+  testProvider: (capability: string) =>
+    req<{ ok: boolean; detail: string }>('POST', `/api/providers/${capability}/test`),
+  getCloudProfile: () => req<CloudProfileState>('GET', '/api/providers/cloud-profile'),
+  setCloudProfile: (profile: string, applyIdentity = false) =>
+    req<CloudProfileResult>('POST', '/api/providers/cloud-profile', { profile, apply_identity: applyIdentity }),
 
   systemHealth: () => req<SystemHealth>('GET', '/api/system/health'),
   systemProactive: () => req<ProactiveHealth>('GET', '/api/system/proactive'),

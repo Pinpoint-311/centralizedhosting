@@ -164,6 +164,14 @@ body {
     border-color: #fbbf24;
   }
 
+  /* Ensure hidden action buttons are visible when focused via keyboard */
+  /* This enables keyboard users to see & activate buttons that are normally hover-only */
+  .opacity-0:focus-visible,
+  .group:focus-within .opacity-0,
+  .group:has(:focus-visible) .opacity-0 {
+    opacity: 1 !important;
+  }
+
   .text-gradient {
     background: linear-gradient(135deg, #fff 0%, #a5b4fc 100%);
     -webkit-background-clip: text;

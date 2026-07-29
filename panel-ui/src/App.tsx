@@ -24,7 +24,7 @@ import { SetupLayout } from './pages/setup/SetupLayout'
 import { Branding } from './pages/setup/Branding'
 import { Integration } from './pages/setup/Integration'
 import { Organization } from './pages/setup/Organization'
-import { Users } from './pages/setup/Users'
+import { UsersPage } from './pages/setup/Users'
 import { SystemSettings } from './pages/setup/SystemSettings'
 import { SystemHealth } from './pages/setup/SystemHealth'
 
@@ -139,7 +139,7 @@ export function App() {
                   <Route path="/setup/branding" element={<Branding />} />
                   <Route path="/setup/integration" element={<Integration />} />
                   <Route path="/setup/organization" element={<Organization />} />
-                  <Route path="/setup/users" element={<Users />} />
+                  <Route path="/setup/users" element={<UsersPage />} />
                   <Route path="/setup/system" element={<SystemSettings />} />
                   <Route path="/setup/health" element={<SystemHealth />} />
                 </Route>

@@ -237,27 +237,40 @@ def selected_provider(db: Session, capability: str) -> str:
     return get_setting(db, SELECTOR_KEY[capability]) or DEFAULT_PROVIDER[capability]
 
 
+def _provider_configured(db: Session, capability: str, provider: str) -> bool:
+    """True when every required (non-optional) credential for a provider is set.
+    The UI keys ``configured`` by provider, not by field."""
+    meta = CATALOGS[capability].get(provider)
+    if not meta:
+        return False
+    required = [f for f in meta["credential_fields"] if "optional" not in f["label"].lower()]
+    return bool(required) and all(get_setting(db, f["key"]) for f in required)
+
+
 def catalog_for_api(db: Session, capability: str) -> dict:
+    """Response shape is the app's ProviderCatalog, verbatim, so the ported
+    ServiceProviders component runs unmodified against the control plane."""
     cat = CATALOGS[capability]
-    selected = selected_provider(db, capability)
-    configured: dict[str, bool] = {}
-    values: dict[str, str] = {}
-    for key, f in _all_fields(capability).items():
-        v = get_setting(db, key)
-        if v:
-            configured[key] = True
-            if not f.get("secret"):
-                values[key] = v
-    out = {
-        "capability": capability,
-        "providers": [{"provider": k, **v} for k, v in cat.items()],
-        "selected": selected,
-        "configured": configured,
-        "values": values,
+    current = selected_provider(db, capability)
+    current_model = get_setting(db, MODEL_KEY) or cat.get(current, {}).get("default_model")
+
+    providers = []
+    for key, meta in cat.items():
+        info = {"provider": key, **meta}
+        if capability == "ai":
+            info["models_source"] = "curated"
+            info["models_fetched_at"] = None
+        providers.append(info)
+
+    model_ids = {m["id"] for m in cat.get(current, {}).get("models", [])}
+    return {
+        "current_provider": current,
+        "default_provider": DEFAULT_PROVIDER[capability],
+        "current_model": current_model if capability == "ai" else None,
+        "current_model_available": (current_model in model_ids) if (capability == "ai" and model_ids) else True,
+        "configured": {k: _provider_configured(db, capability, k) for k in cat},
+        "providers": providers,
     }
-    if capability == "ai":
-        out["model"] = get_setting(db, MODEL_KEY) or cat.get(selected, {}).get("default_model")
-    return out
 
 
 def save_provider(db: Session, capability: str, provider: str, model: str | None, credentials: dict) -> None:
@@ -275,39 +288,92 @@ def save_provider(db: Session, capability: str, provider: str, model: str | None
 
 
 def provider_status(db: Session, capability: str) -> dict:
-    """A light 'test': are the required (non-optional) credentials present?"""
+    """A light 'test': are the required (non-optional) credentials present?
+    Returns the app's {ok, detail} shape. The control plane doesn't carry the
+    cloud SDKs, so this verifies configuration rather than a live round-trip."""
     provider = selected_provider(db, capability)
     meta = CATALOGS[capability].get(provider)
     if not meta:
-        return {"ok": False, "message": "No provider selected"}
+        return {"ok": False, "detail": "No provider selected."}
     missing = [
         f["label"] for f in meta["credential_fields"]
         if "optional" not in f["label"].lower() and not get_setting(db, f["key"])
     ]
     if missing:
-        return {"ok": False, "message": f"Missing credentials: {', '.join(missing)}"}
-    return {"ok": True, "message": f"{meta['name']} is configured"}
+        return {"ok": False, "detail": f"Missing credentials: {', '.join(missing)}."}
+    return {"ok": True, "detail": f"{meta['name']} is configured and ready."}
+
+
+def _components(db: Session) -> dict:
+    """The cloud components in play. Secrets/KMS come from the panel's own
+    secret manager configuration, not the provider store."""
+    from orchestrator.encryption import _kms_provider
+
+    try:
+        kms = _kms_provider()
+    except Exception:  # noqa: BLE001 — never let a config probe break the page
+        kms = "local"
+    return {
+        "ai": selected_provider(db, "ai"),
+        "translation": selected_provider(db, "translation"),
+        "identity": selected_provider(db, "identity"),
+        "secrets": kms if kms in ("google", "azure", "aws") else "local",
+        "kms": kms,
+        "email": "",
+        "sms": "",
+    }
+
+
+def _derive_profile(components: dict) -> str:
+    """Which cloud profile the current selections correspond to, or 'mixed'."""
+    for pid, p in CLOUD_PROFILES.items():
+        if p["ai"] == components["ai"] and p["translation"] == components["translation"]:
+            return pid
+    return "mixed"
 
 
 def cloud_profile_state(db: Session) -> dict:
-    ai, tr = selected_provider(db, "ai"), selected_provider(db, "translation")
-    current = next(
-        (pid for pid, p in CLOUD_PROFILES.items() if p["ai"] == ai and p["translation"] == tr),
-        None,
-    )
+    """The app's CloudProfileState shape, verbatim."""
+    comps = _components(db)
     return {
-        "current": current,
-        "components": {"ai": ai, "translation": tr, "identity": selected_provider(db, "identity")},
+        "profile": _derive_profile(comps),
+        "managed": False,  # the control plane *is* the state; nobody manages it for us
+        "components": comps,
+        "maps": {"provider": "google", "locked": True, "label": "Google Maps"},
         "profiles": [{"id": k, **v} for k, v in CLOUD_PROFILES.items()],
     }
 
 
 def apply_cloud_profile(db: Session, profile_id: str, apply_identity: bool = False) -> dict:
+    """Apply a cloud profile. Returns the app's CloudProfileResult shape."""
     p = CLOUD_PROFILES.get(profile_id)
     if not p:
         raise ValueError("Unknown cloud profile")
     set_setting(db, SELECTOR_KEY["ai"], p["ai"])
     set_setting(db, SELECTOR_KEY["translation"], p["translation"])
+    identity_applied = False
     if apply_identity and p.get("identity_recommended"):
         set_setting(db, SELECTOR_KEY["identity"], p["identity_recommended"])
-    return cloud_profile_state(db)
+        identity_applied = True
+
+    comps = _components(db)
+    # Warn where the new boundary needs credentials that aren't entered yet.
+    warnings = []
+    for cap in ("ai", "translation"):
+        prov = comps[cap]
+        if not _provider_configured(db, cap, prov):
+            name = CATALOGS[cap][prov]["name"]
+            warnings.append(f"{name} has no credentials yet — add them below before it can be used.")
+    if comps["kms"] != "local" and comps["kms"] != p["kms"]:
+        warnings.append(
+            f"Secret encryption still uses {comps['kms']}; this profile expects {p['kms']}. "
+            "Change KMS_PROVIDER and re-encrypt to move the boundary."
+        )
+    return {
+        "ok": True,
+        "profile": profile_id,
+        "components": comps,
+        "identity_recommended": p.get("identity_recommended", ""),
+        "identity_applied": identity_applied,
+        "warnings": warnings,
+    }
