@@ -34,48 +34,41 @@ def test_tampered_session_is_rejected(client):
     assert r.status_code in (401, 403, 503)
 
 
-def test_federation_save_masks_secret_and_enables(client):
-    body = {
-        "enabled": True,
-        "provider": "okta",
-        "issuer": "https://example.okta.com",
-        "client_id": "abc123",
-        "client_secret": "super-secret-value",
-        "groups_claim": "groups",
-        "group_role_map": {"pp-admins": "admin", "pp-ops": "operator"},
-        "default_role": "viewer",
-    }
-    r = client.put("/api/auth/federation", json=body, headers=HEADERS)
-    assert r.status_code == 200, r.text
-    out = r.json()
-    assert out["enabled"] is True
-    assert out["client_secret_set"] is True
-    assert "super-secret-value" not in r.text  # secret never returned
-    assert "client_secret" not in out
-
-    # Status now reports configured.
-    assert client.get("/api/auth/sso/status").json()["configured"] is True
+def test_federation_editor_is_retired(client):
+    """Identity is configured in ONE place — the provider catalog. The old
+    federation editor is gone so two screens can't disagree about who signs
+    people in."""
+    for method, path in (("get", "/api/auth/federation"),
+                         ("put", "/api/auth/federation"),
+                         ("post", "/api/auth/federation/test")):
+        r = getattr(client, method)(path, headers=HEADERS, **({"json": {}} if method == "put" else {}))
+        # 404, or 405 where the SPA catch-all claims the path for GET only.
+        assert r.status_code in (404, 405), f"{method.upper()} {path} should be gone"
 
 
-def test_federation_enable_requires_credentials(client):
-    r = client.put("/api/auth/federation", json={"enabled": True, "issuer": "", "client_id": ""}, headers=HEADERS)
-    assert r.status_code == 422
+def test_ui_configured_provider_outranks_a_legacy_federation_row(client, db):
+    """An upgraded deployment may still carry a FederationConfig row. It must
+    keep authenticating, but the Staff Sign-In card has to win — otherwise the
+    only remaining editor would silently do nothing."""
+    from orchestrator import oidc
+    from orchestrator.models import FederationConfig
+    from orchestrator.security import encrypt_value
 
+    db.add(FederationConfig(
+        id="default", enabled=True, provider="okta",
+        issuer="https://legacy.okta.com", client_id="legacy-cid",
+        client_secret_encrypted=encrypt_value("legacy-secret"),
+    ))
+    db.commit()
+    # Legacy row alone still signs people in.
+    assert oidc.effective_config(db).issuer == "https://legacy.okta.com"
 
-def test_federation_secret_persists_when_omitted(client):
-    base = {"enabled": True, "provider": "oidc", "issuer": "https://idp.example.gov",
-            "client_id": "cid", "client_secret": "s3cret", "default_role": "viewer"}
-    client.put("/api/auth/federation", json=base, headers=HEADERS)
-    # Update without resupplying the secret -> stays set.
-    upd = dict(base); upd.pop("client_secret")
-    r = client.put("/api/auth/federation", json=upd, headers=HEADERS)
-    assert r.json()["client_secret_set"] is True
-
-
-def test_invalid_role_in_map_rejected(client):
-    body = {"enabled": False, "issuer": "https://idp", "client_id": "c",
-            "group_role_map": {"g": "superuser"}, "default_role": "viewer"}
-    assert client.put("/api/auth/federation", json=body, headers=HEADERS).status_code == 422
+    client.post("/api/providers/identity/save", json={"provider": "auth0", "settings": {
+        "AUTH0_DOMAIN": "new.us.auth0.com", "AUTH0_CLIENT_ID": "c", "AUTH0_CLIENT_SECRET": "s",
+    }}, headers=HEADERS)
+    db.expire_all()
+    cfg = oidc.effective_config(db)
+    assert cfg.provider == "auth0" and cfg.issuer == "https://new.us.auth0.com"
 
 
 # ---- Uniform SSO setup: the app's IDENTITY_PROVIDER env catalog ------------

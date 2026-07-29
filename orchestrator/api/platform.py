@@ -492,11 +492,14 @@ def operators(request: Request, db: Session = Depends(get_db), actor: str = Depe
         {"actor": a, "actions": int(n), "last_action_at": t.isoformat() if t else None}
         for a, n, t in rows
     ]
-    fed = db.get(FederationConfig, "default")
+    from orchestrator import oidc
+
+    cfg = oidc.effective_config(db)
     return {
         "operators": ops,
-        "role_map": (fed.group_role_map if fed else {}) or {},
-        "default_role": settings.default_operator_role,
-        "sso_enabled": bool(fed and fed.enabled),
+        # Reports the SSO actually in force, from whichever source configured it
+        # — not just the retired federation row.
+        "sso_enabled": cfg is not None,
+        "sso_provider": (cfg.provider if cfg else None),
         "you": {"actor": actor, "role": resolve_role(request)},
     }

@@ -73,4 +73,7 @@ def test_operators_lists_actors_and_role_context(client):
     ops = client.get("/api/operators", headers=HEADERS).json()
     assert ops["you"]["role"] == "admin"
     assert any(o["actor"] for o in ops["operators"])
-    assert "default_role" in ops
+    # The retired federation row no longer decides this — it reports the SSO
+    # actually in force, and there is no role map to report with one role.
+    assert ops["sso_enabled"] is False and ops["sso_provider"] is None
+    assert "role_map" not in ops and "default_role" not in ops

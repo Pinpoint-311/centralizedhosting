@@ -4,13 +4,11 @@ import { api } from '../../lib/api'
 import type { KeyCatalog, SecretOut } from '../../lib/types'
 import { Spinner } from '../../components/ui'
 import { useToast } from '../../components/Toast'
-import { useSession } from '../../lib/session'
-import { ApiKeysHub, SsoFederation } from '../Settings'
+import { ApiKeysHub } from '../Settings'
 import ServiceProviders from './ServiceProviders'
 
 export function Integration() {
   const toast = useToast()
-  const { can } = useSession()
   const [catalog, setCatalog] = useState<KeyCatalog | null>(null)
   const [creds, setCreds] = useState<SecretOut[]>([])
 
@@ -34,7 +32,6 @@ export function Integration() {
         </p>
       </div>
 
-      {can('admin') && <SsoFederation />}
       <ServiceProviders />
       {!catalog ? <Spinner /> : <ApiKeysHub catalog={catalog} creds={creds} onChange={loadCreds} />}
     </div>

@@ -1,9 +1,13 @@
-"""Operator SSO (OIDC) + federation configuration.
+"""Operator SSO (OIDC) sign-in.
 
-Sign-in flow: /login redirects to the host's IdP; /callback validates the ID
-token, maps groups→role, and mints an HttpOnly session cookie. Federation is
-configured at runtime (issuer + client id/secret) and the secret is stored
-encrypted via the panel's secret manager.
+Sign-in flow: /sso/login redirects to the host's IdP; /sso/callback validates
+the ID token, matches the operator to a User row by email, and mints the
+app-style JWT bearer.
+
+The identity provider is configured in ONE place — Setup → Integration →
+Staff Sign-In, which writes the app's provider catalog (Auth0 / Entra / Okta /
+generic OIDC). There is no separate federation editor: a second configurator
+for the same thing meant two screens could disagree about who signs people in.
 """
 
 import time
@@ -17,13 +21,8 @@ from sqlalchemy.orm import Session
 from orchestrator import audit, oidc
 from orchestrator.config import settings
 from orchestrator.db import get_db
-from orchestrator.models import FederationConfig, User, utcnow
-from orchestrator.security import (
-    ROLES,
-    encrypt_value,
-    mint_session,
-    require_admin,
-)
+from orchestrator.models import User, utcnow
+from orchestrator.security import mint_session
 from orchestrator.user_auth import create_access_token
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -156,86 +155,3 @@ def sso_callback(request: Request, db: Session = Depends(get_db),
 def logout(response: Response):
     response.delete_cookie(settings.session_cookie_name, path="/")
     return {"ok": True}
-
-
-# ------------------------------------------------------------ federation config
-
-class FederationUpdate(BaseModel):
-    enabled: bool = False
-    provider: str = Field(default="oidc", max_length=40)
-    issuer: str | None = None
-    client_id: str | None = None
-    client_secret: str | None = None  # write-only; omit/blank to keep existing
-    groups_claim: str = "groups"
-    group_role_map: dict[str, str] = {}
-    default_role: str = "viewer"
-
-
-def _config_out(cfg: FederationConfig | None) -> dict:
-    if not cfg:
-        return {"enabled": False, "provider": "oidc", "issuer": None, "client_id": None,
-                "client_secret_set": False, "groups_claim": "groups", "group_role_map": {},
-                "default_role": "viewer"}
-    return {
-        "enabled": cfg.enabled,
-        "provider": cfg.provider,
-        "issuer": cfg.issuer,
-        "client_id": cfg.client_id,
-        "client_secret_set": bool(cfg.client_secret_encrypted),  # never return the secret
-        "groups_claim": cfg.groups_claim,
-        "group_role_map": cfg.group_role_map or {},
-        "default_role": cfg.default_role,
-    }
-
-
-@router.get("/federation")
-def get_federation(db: Session = Depends(get_db), _: str = Depends(require_admin)):
-    return _config_out(oidc.get_config(db))
-
-
-@router.put("/federation")
-def put_federation(body: FederationUpdate, db: Session = Depends(get_db),
-                   actor: str = Depends(require_admin)):
-    if body.default_role not in ROLES:
-        raise HTTPException(422, f"default_role must be one of {ROLES}")
-    for role in body.group_role_map.values():
-        if role not in ROLES:
-            raise HTTPException(422, f"group_role_map roles must be one of {ROLES}")
-
-    cfg = oidc.get_config(db)
-    if not cfg:
-        cfg = FederationConfig(id="default")
-        db.add(cfg)
-    cfg.enabled = body.enabled
-    cfg.provider = body.provider
-    cfg.issuer = (body.issuer or "").rstrip("/") or None
-    cfg.client_id = body.client_id or None
-    if body.client_secret:  # only replace when a new value is supplied
-        cfg.client_secret_encrypted = encrypt_value(body.client_secret)
-    cfg.groups_claim = body.groups_claim or "groups"
-    cfg.group_role_map = body.group_role_map
-    cfg.default_role = body.default_role
-    cfg.updated_by = actor
-
-    if cfg.enabled and not (cfg.issuer and cfg.client_id and cfg.client_secret_encrypted):
-        raise HTTPException(422, "issuer, client_id, and client_secret are required to enable SSO")
-
-    oidc._DISCO_CACHE.clear()
-    audit.record(db, actor, "auth.federation_updated", None,
-                 enabled=cfg.enabled, provider=cfg.provider, issuer=cfg.issuer)
-    db.commit()
-    return _config_out(cfg)
-
-
-@router.post("/federation/test")
-def test_federation(db: Session = Depends(get_db), _: str = Depends(require_admin)):
-    """Live discovery check against the configured issuer."""
-    cfg = oidc.get_config(db)
-    if not cfg or not cfg.issuer:
-        raise HTTPException(400, "Set an issuer first")
-    try:
-        meta = oidc.discover(cfg.issuer, force=True)
-    except Exception as exc:
-        raise HTTPException(502, f"Discovery failed: {exc}")
-    return {"ok": True, "authorization_endpoint": meta.get("authorization_endpoint"),
-            "issuer": meta.get("issuer")}

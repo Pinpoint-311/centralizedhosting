@@ -7,7 +7,6 @@ import type {
   BulkResultRow,
   ComplianceSummary,
   CostSummary,
-  FederationConfig,
   FleetSummary,
   GeoFeatureCollection,
   KeyCatalog,
@@ -235,9 +234,6 @@ export const api = {
   // SSO / federation
   ssoStatus: () => req<{ configured: boolean; provider: string; login_path: string }>('GET', '/api/auth/sso/status'),
   logout: () => req<{ ok: boolean }>('POST', '/api/auth/logout'),
-  getFederation: () => req<FederationConfig>('GET', '/api/auth/federation'),
-  putFederation: (body: Record<string, unknown>) => req<FederationConfig>('PUT', '/api/auth/federation', body),
-  testFederation: () => req<{ ok: boolean; authorization_endpoint: string; issuer: string }>('POST', '/api/auth/federation/test'),
   reencryptSecrets: () => req<{ reencrypted: number; skipped: number; kms_backend: string }>('POST', '/api/maintenance/reencrypt-secrets'),
 
   // insights

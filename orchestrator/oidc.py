@@ -9,17 +9,19 @@ credential env vars — ``AUTH0_DOMAIN``/``AUTH0_CLIENT_ID``/``AUTH0_CLIENT_SECR
 ``ENTRA_TENANT_ID``/``ENTRA_CLIENT_ID``/``ENTRA_CLIENT_SECRET``/``ENTRA_AUTHORITY``,
 ``OKTA_ISSUER``/``OKTA_CLIENT_ID``/``OKTA_CLIENT_SECRET``,
 ``OIDC_ISSUER``/``OIDC_CLIENT_ID``/``OIDC_CLIENT_SECRET`` — with the issuer
-derived exactly as the app derives it. As an alternative, the panel also lets an
-admin enter the same fields in the UI (``FederationConfig``, client secret
-stored envelope-encrypted). Either source produces the same effective config.
+derived exactly as the app derives it. The same catalog is editable in the UI
+(Setup → Integration → Staff Sign-In), which writes those keys to the provider
+store; both sources resolve through one code path to the same effective config.
+
+``FederationConfig`` rows remain readable so deployments configured with the
+retired federation editor keep authenticating, but nothing writes them.
 """
 
 import base64
 import hashlib
-import json
 import os
 import secrets as pysecrets
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import httpx
 import jwt
@@ -28,7 +30,7 @@ from sqlalchemy.orm import Session
 
 from orchestrator.config import settings
 from orchestrator.models import FederationConfig
-from orchestrator.security import ROLES, _RANK, decrypt_value
+from orchestrator.security import decrypt_value
 
 _DISCO_CACHE: dict[str, dict] = {}
 
@@ -42,9 +44,9 @@ class EffectiveConfig:
     issuer: str
     client_id: str
     client_secret: str
+    # Retained only so a legacy FederationConfig row still parses; the panel
+    # has ONE access level, so IdP groups are never mapped to a role.
     groups_claim: str = "groups"
-    group_role_map: dict = field(default_factory=dict)
-    default_role: str = "viewer"
 
 
 def get_config(db: Session) -> FederationConfig | None:
@@ -53,18 +55,6 @@ def get_config(db: Session) -> FederationConfig | None:
 
 def _env(name: str) -> str:
     return (os.getenv(name) or "").strip()
-
-
-def _role_map_from_settings() -> dict:
-    """Env-configured SSO reuses the panel's existing ROLE_GROUP_MAP for the
-    group→role mapping (same var the header-based RBAC uses)."""
-    if not settings.role_group_map:
-        return {}
-    try:
-        raw = json.loads(settings.role_group_map)
-        return {str(k): str(v) for k, v in raw.items() if v in ROLES}
-    except Exception:
-        return {}
 
 
 def resolve_identity_config(get=None) -> EffectiveConfig | None:
@@ -110,8 +100,6 @@ def resolve_identity_config(get=None) -> EffectiveConfig | None:
         client_id=cid,
         client_secret=sec,
         groups_claim=(get("SSO_GROUPS_CLAIM") or "groups"),
-        group_role_map=_role_map_from_settings(),
-        default_role=(settings.default_operator_role if settings.default_operator_role in ROLES else "viewer"),
     )
 
 
@@ -133,22 +121,30 @@ def _from_db(cfg: FederationConfig) -> EffectiveConfig:
         client_id=cfg.client_id or "",
         client_secret=decrypt_value(cfg.client_secret_encrypted) if cfg.client_secret_encrypted else "",
         groups_claim=cfg.groups_claim or "groups",
-        group_role_map={str(k): v for k, v in (cfg.group_role_map or {}).items() if v in ROLES},
-        default_role=cfg.default_role if cfg.default_role in ROLES else "viewer",
     )
 
 
 def effective_config(db: Session) -> EffectiveConfig | None:
     """The SSO config in force, in precedence order:
 
-    1. the DB FederationConfig when an admin has explicitly enabled it,
-    2. the env provider catalog (deployment-level, set up exactly like the app),
-    3. the identity provider configured in the panel UI.
+    1. the env provider catalog (deployment-level, set up exactly like the app),
+    2. the identity provider configured in the panel UI,
+    3. a legacy FederationConfig row, if one is still enabled.
+
+    The UI deliberately outranks the legacy row: the federation editor that
+    wrote those rows has been retired, so leaving it on top would mean the
+    Staff Sign-In card silently did nothing on an upgraded deployment.
     """
+    from_env = resolve_identity_config()
+    if from_env:
+        return from_env
+    from_store = identity_from_store(db)
+    if from_store:
+        return from_store
     cfg = get_config(db)
     if cfg and cfg.enabled and cfg.issuer and cfg.client_id and cfg.client_secret_encrypted:
         return _from_db(cfg)
-    return resolve_identity_config() or identity_from_store(db)
+    return None
 
 
 def is_configured(db: Session) -> bool:
@@ -248,28 +244,6 @@ def verify_id_token(cfg: EffectiveConfig, meta: dict, id_token: str, nonce: str)
     if nonce and claims.get("nonce") != nonce:
         raise ValueError("nonce mismatch")
     return claims
-
-
-def role_from_claims(cfg: EffectiveConfig, claims: dict) -> str:
-    """Map the operator's IdP groups/roles to the highest panel role, or the
-    configured default role when nothing maps."""
-    mapping = {str(k): v for k, v in (cfg.group_role_map or {}).items() if v in ROLES}
-    raw = claims.get(cfg.groups_claim or "groups", [])
-    if isinstance(raw, str):
-        groups = [g.strip() for g in raw.replace(",", " ").split() if g.strip()]
-    elif isinstance(raw, list):
-        groups = [str(g) for g in raw]
-    else:
-        groups = []
-    best = -1
-    for g in groups:
-        role = mapping.get(g)
-        if role and _RANK[role] > best:
-            best = _RANK[role]
-    if best >= 0:
-        return ROLES[best]
-    default = cfg.default_role if cfg.default_role in ROLES else "viewer"
-    return default
 
 
 def operator_identity(claims: dict) -> str:

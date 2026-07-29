@@ -54,9 +54,8 @@ export interface SystemConfig {
 
 export interface Operators {
   operators: { actor: string; actions: number; last_action_at: string | null }[]
-  role_map: Record<string, string>
-  default_role: string
   sso_enabled: boolean
+  sso_provider: string | null
   you: { actor: string; role: string }
 }
 
@@ -375,6 +374,8 @@ export interface PanelUser {
   via?: 'user' | 'token'
 }
 
+/** @deprecated The federation editor was retired; identity is configured via
+ *  the provider catalog (Setup → Integration → Staff Sign-In). */
 export interface FederationConfig {
   enabled: boolean
   provider: string
