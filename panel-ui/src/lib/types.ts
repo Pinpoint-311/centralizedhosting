@@ -352,6 +352,15 @@ export interface CloudProfileResult {
   warnings: string[]
 }
 
+export interface AuthStatus {
+  /** App-compatible field name: any identity provider is configured. */
+  auth0_configured: boolean
+  provider: string | null
+  message: string
+  /** First-run password sign-in is still permitted (no IdP configured yet). */
+  bootstrap_available: boolean
+}
+
 export interface PanelUser {
   id: number | null
   username: string

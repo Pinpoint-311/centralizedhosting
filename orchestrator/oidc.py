@@ -67,31 +67,38 @@ def _role_map_from_settings() -> dict:
         return {}
 
 
-def resolve_identity_config() -> EffectiveConfig | None:
-    """Build the effective SSO config from the app's provider-catalog env vars.
-    Returns None when IDENTITY_PROVIDER is unset or its credentials are missing.
-    Issuer derivation matches the app exactly."""
-    provider = _env("IDENTITY_PROVIDER").lower()
+def resolve_identity_config(get=None) -> EffectiveConfig | None:
+    """Build the effective SSO config from the app's provider catalog.
+
+    Issuer derivation matches the app's resolve_identity_config exactly. ``get``
+    resolves a credential key; it defaults to the environment, and the provider
+    store passes its own getter so an IdP configured in Setup → Integration
+    drives sign-in identically to one configured by env.
+    """
+    get = get or _env
+    provider = (get("IDENTITY_PROVIDER") or "").strip().lower()
     if not provider:
         return None
 
     if provider == "auth0":
-        domain, cid, sec = _env("AUTH0_DOMAIN"), _env("AUTH0_CLIENT_ID"), _env("AUTH0_CLIENT_SECRET")
+        domain, cid, sec = get("AUTH0_DOMAIN"), get("AUTH0_CLIENT_ID"), get("AUTH0_CLIENT_SECRET")
         if not (domain and cid and sec):
             return None
         issuer = f"https://{domain}"
     elif provider == "entra":
-        tenant, cid, sec = _env("ENTRA_TENANT_ID"), _env("ENTRA_CLIENT_ID"), _env("ENTRA_CLIENT_SECRET")
-        authority = _env("ENTRA_AUTHORITY") or "login.microsoftonline.com"
+        tenant, cid, sec = get("ENTRA_TENANT_ID"), get("ENTRA_CLIENT_ID"), get("ENTRA_CLIENT_SECRET")
+        authority = get("ENTRA_AUTHORITY") or "login.microsoftonline.com"
         if not (tenant and cid and sec):
             return None
+        # The app accepts a bare host here; tolerate a full URL too.
+        authority = authority.replace("https://", "").replace("http://", "").strip("/")
         issuer = f"https://{authority}/{tenant}/v2.0"
     elif provider == "okta":
-        issuer, cid, sec = _env("OKTA_ISSUER"), _env("OKTA_CLIENT_ID"), _env("OKTA_CLIENT_SECRET")
+        issuer, cid, sec = get("OKTA_ISSUER"), get("OKTA_CLIENT_ID"), get("OKTA_CLIENT_SECRET")
         if not (issuer and cid and sec):
             return None
     elif provider == "oidc":
-        issuer, cid, sec = _env("OIDC_ISSUER"), _env("OIDC_CLIENT_ID"), _env("OIDC_CLIENT_SECRET")
+        issuer, cid, sec = get("OIDC_ISSUER"), get("OIDC_CLIENT_ID"), get("OIDC_CLIENT_SECRET")
         if not (issuer and cid and sec):
             return None
     else:
@@ -102,10 +109,21 @@ def resolve_identity_config() -> EffectiveConfig | None:
         issuer=issuer.rstrip("/"),
         client_id=cid,
         client_secret=sec,
-        groups_claim=_env("SSO_GROUPS_CLAIM") or "groups",
+        groups_claim=(get("SSO_GROUPS_CLAIM") or "groups"),
         group_role_map=_role_map_from_settings(),
         default_role=(settings.default_operator_role if settings.default_operator_role in ROLES else "viewer"),
     )
+
+
+def identity_from_store(db: Session) -> EffectiveConfig | None:
+    """The identity provider configured in the panel UI (Setup → Integration →
+    Staff Sign-In). Same catalog and same issuer derivation as the app."""
+    from orchestrator import providers
+
+    def get(key: str) -> str:
+        return providers.get_setting(db, key) or ""
+
+    return resolve_identity_config(get)
 
 
 def _from_db(cfg: FederationConfig) -> EffectiveConfig:
@@ -121,16 +139,31 @@ def _from_db(cfg: FederationConfig) -> EffectiveConfig:
 
 
 def effective_config(db: Session) -> EffectiveConfig | None:
-    """The SSO config in force: the DB FederationConfig when an admin has enabled
-    it, otherwise the env provider catalog (set up exactly like the app)."""
+    """The SSO config in force, in precedence order:
+
+    1. the DB FederationConfig when an admin has explicitly enabled it,
+    2. the env provider catalog (deployment-level, set up exactly like the app),
+    3. the identity provider configured in the panel UI.
+    """
     cfg = get_config(db)
     if cfg and cfg.enabled and cfg.issuer and cfg.client_id and cfg.client_secret_encrypted:
         return _from_db(cfg)
-    return resolve_identity_config()
+    return resolve_identity_config() or identity_from_store(db)
 
 
 def is_configured(db: Session) -> bool:
     return effective_config(db) is not None
+
+
+def is_identity_configured(db: Session) -> bool:
+    """Whether ANY identity provider is set up — Auth0, Entra, Okta or generic
+    OIDC, from any source. Ported from the app's Auth0Service.is_identity_configured.
+
+    Deliberately gates on the *presence* of identity configuration, never on
+    whether the IdP is reachable: an IdP outage must not re-open the
+    password/bootstrap path that this guards.
+    """
+    return is_configured(db)
 
 
 def _assert_https(url: str) -> None:

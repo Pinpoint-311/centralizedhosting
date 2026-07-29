@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { AlertCircle, Shield, LogIn, KeyRound } from 'lucide-react'
 import { Button, Card, Input } from './ui'
 import { api, setToken } from '../lib/api'
+import type { AuthStatus } from '../lib/types'
 import { Logo } from './Logo'
 import { getPlatformName } from '../lib/config'
 
@@ -24,7 +25,7 @@ const SSO_ERRORS: Record<string, string> = {
 export function TokenGate({ onAuthed }: { onAuthed: () => void }) {
     const [error, setError] = useState('')
     const [isLoading, setIsLoading] = useState(false)
-    const [authStatus, setAuthStatus] = useState<{ configured: boolean } | null>(null)
+    const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
     const [showAlternate, setShowAlternate] = useState(false)
     const [username, setUsername] = useState('')
     const [password, setPassword] = useState('')
@@ -32,7 +33,9 @@ export function TokenGate({ onAuthed }: { onAuthed: () => void }) {
 
     // Check auth status on mount
     useEffect(() => {
-        api.ssoStatus().then(setAuthStatus).catch(() => setAuthStatus({ configured: false }))
+        api.authStatus()
+            .then(setAuthStatus)
+            .catch(() => setAuthStatus({ auth0_configured: false, provider: null, message: '', bootstrap_available: true }))
         const params = new URLSearchParams(window.location.search)
         const urlError = params.get('sso_error')
         if (urlError) {
@@ -111,7 +114,7 @@ export function TokenGate({ onAuthed }: { onAuthed: () => void }) {
                         )}
 
                         {/* SSO Login Button */}
-                        {authStatus?.configured && (
+                        {authStatus?.auth0_configured && (
                             <div className="space-y-4">
                                 <Button
                                     size="lg"
@@ -132,15 +135,17 @@ export function TokenGate({ onAuthed }: { onAuthed: () => void }) {
                             </div>
                         )}
 
-                        {/* Password / token sign-in — the control plane's break-fix paths */}
-                        {(!authStatus?.configured || showAlternate) ? (
-                            <div className={`space-y-4 ${authStatus?.configured ? 'mt-5 pt-5 border-t border-white/10' : ''}`}>
+                        {/* First-run password sign-in. Mirrors the app's bootstrap: available
+                            only until an identity provider is configured, after which the
+                            backend refuses it and SSO is the only way in for people. */}
+                        {authStatus?.bootstrap_available ? (
+                            <div className="space-y-4">
                                 <Input
                                     label="Username"
                                     value={username}
                                     onChange={(e) => setUsername(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && handlePasswordLogin()}
-                                    autoFocus={!authStatus?.configured}
+                                    autoFocus
                                 />
                                 <Input
                                     label="Password"
@@ -151,13 +156,16 @@ export function TokenGate({ onAuthed }: { onAuthed: () => void }) {
                                 />
                                 <Button
                                     className="w-full"
-                                    variant={authStatus?.configured ? 'secondary' : 'primary'}
                                     onClick={handlePasswordLogin}
                                     isLoading={isLoading}
                                     leftIcon={<KeyRound className="w-4 h-4" />}
                                 >
                                     Sign In
                                 </Button>
+                                <p className="text-white/40 text-xs text-center">
+                                    First-run access. Once you configure single sign-on under
+                                    Setup&nbsp;→&nbsp;Integration, everyone signs in through your identity provider.
+                                </p>
 
                                 <div className="pt-3 border-t border-white/10 space-y-3">
                                     <Input
@@ -174,12 +182,30 @@ export function TokenGate({ onAuthed }: { onAuthed: () => void }) {
                                     </Button>
                                 </div>
                             </div>
+                        ) : showAlternate ? (
+                            /* SSO is enforced, so password sign-in is refused by the backend and
+                               isn't offered here. The operator token remains — it's a service
+                               credential for automation, and the way back in if the IdP breaks. */
+                            <div className="mt-5 pt-5 border-t border-white/10 space-y-3">
+                                <Input
+                                    label="Panel operator token"
+                                    type="password"
+                                    placeholder="Paste your PANEL_API_TOKEN"
+                                    value={token}
+                                    onChange={(e) => setTokenValue(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleTokenLogin()}
+                                    helperText="Break-glass and automation access. People sign in with SSO."
+                                />
+                                <Button className="w-full" variant="secondary" onClick={handleTokenLogin} isLoading={isLoading}>
+                                    Enter with token
+                                </Button>
+                            </div>
                         ) : (
                             <button
                                 onClick={() => setShowAlternate(true)}
                                 className="w-full text-center text-xs text-white/40 hover:text-white/70 mt-5"
                             >
-                                Use a password or operator token instead
+                                Use an operator token instead
                             </button>
                         )}
 

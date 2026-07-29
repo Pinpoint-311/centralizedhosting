@@ -167,10 +167,30 @@ def reset_password(user_id: int, body: PasswordSet, db: Session = Depends(get_db
 
 # ---------------------------------------------------------------- login / me
 
+def _bootstrap_gate_open(db: Session) -> bool:
+    """Password sign-in is permitted ONLY when NO identity provider is
+    configured (Auth0, Entra, Okta, or generic OIDC). Ported from the app's
+    _bootstrap_gate_open.
+
+    Fail-closed: gates on the *presence* of identity config, not its
+    reachability, so an IdP outage cannot re-open password admin access.
+    """
+    from orchestrator import oidc
+
+    return not oidc.is_identity_configured(db)
+
+
 @router.post("/auth/login")
 def login(body: LoginIn, db: Session = Depends(get_db)):
-    """Password login for the first admin / break-fix. Normal operators sign in
-    through SSO (see /api/auth/login → OIDC). Mints the app-style JWT bearer."""
+    """First-run password sign-in, gated exactly like the app's bootstrap: it
+    works only until an identity provider is configured. After that, operators
+    sign in through SSO. Mints the app-style JWT bearer."""
+    if not _bootstrap_gate_open(db):
+        raise HTTPException(
+            403,
+            "Password sign-in is disabled — single sign-on is configured. "
+            "Use 'Sign in with SSO'.",
+        )
     user = db.execute(
         select(User).where(func.lower(User.username) == body.username.strip().lower())
     ).scalar_one_or_none()

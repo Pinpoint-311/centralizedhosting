@@ -50,6 +50,23 @@ def _frontend_base(request: Request) -> str:
 
 # ------------------------------------------------------------------ sign-in
 
+@router.get("/status")
+def auth_status(db: Session = Depends(get_db)):
+    """PUBLIC — authentication configuration status. The app's /auth/status,
+    plus whether the first-run password path is still open."""
+    cfg = oidc.effective_config(db)
+    configured = cfg is not None
+    return {
+        # App-compatible fields.
+        "auth0_configured": configured,
+        "provider": (cfg.provider if cfg else None),
+        "message": "Ready" if configured else "No identity provider configured",
+        # Control-plane addition: the login screen offers the first-run
+        # password form only while this is true (see users._bootstrap_gate_open).
+        "bootstrap_available": not configured,
+    }
+
+
 @router.get("/sso/status")
 def sso_status(db: Session = Depends(get_db)):
     """PUBLIC — whether SSO is configured, so the login screen can show the

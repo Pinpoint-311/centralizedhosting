@@ -15,6 +15,7 @@ import type {
   LegalHold,
   ManagedField,
   AIModelRefreshResult,
+  AuthStatus,
   CloudProfileResult,
   CloudProfileState,
   Operators,
@@ -181,6 +182,7 @@ export const api = {
   // identity / admin
   whoami: () => req<WhoAmI>('GET', '/api/whoami'),
   me: () => req<PanelUser>('GET', '/api/auth/me'),
+  authStatus: () => req<AuthStatus>('GET', '/api/auth/status'),
   login: async (username: string, password: string) => {
     const r = await req<{ access_token: string; user: PanelUser }>('POST', '/api/auth/login', { username, password })
     setJwt(r.access_token)
