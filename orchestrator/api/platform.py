@@ -167,6 +167,13 @@ def system_config(_: str = Depends(require_operator)):
             "No automatic backups — the fleet registry could not be restored after a loss.",
         ),
         _posture_control(
+            "apply_stacks", "Apply stacks", s.apply_stacks, "warning",
+            "Provisioning deploys town stacks for real.",
+            "Dry run — provisioning renders compose files but never starts anything, so "
+            "towns appear provisioned while nothing is actually running. Set APPLY_STACKS "
+            "when you are ready to deploy.",
+        ),
+        _posture_control(
             "ssl_check_enabled", "Certificate expiry monitoring", s.ssl_check_enabled, "info",
             "Town TLS certificates are probed and alert before they expire.",
             "Certificate expiry isn't monitored, so an expired town certificate surfaces "

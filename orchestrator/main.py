@@ -61,20 +61,16 @@ async def _lifespan(app: FastAPI):
                         # Tamper-anchor the audit chain to stdout for off-host
                         # aggregation (uniform with the app's periodic anchor).
                         audit.anchor_chain(db)
-                        # Leading-indicator scan — surface warning/critical checks
-                        # to stdout so off-host monitoring alerts early (the
-                        # control-plane analogue of the app's admin email).
+                        # Leading-indicator scan. Crossings become real fleet
+                        # alerts (and clear themselves on recovery) instead of
+                        # only reaching stdout, where nobody sees them until the
+                        # warning has already become an outage. Still logged for
+                        # off-host aggregation.
                         import logging
 
-                        from orchestrator import proactive_health
-
-                        result = proactive_health.evaluate(db)
-                        for c in result["checks"]:
-                            if c["status"] in ("warning", "critical"):
-                                logging.getLogger("proactive").warning(
-                                    "[PROACTIVE] %s %s: %s %s",
-                                    c["status"].upper(), c["label"], c["message"], c["action"],
-                                )
+                        for a in insights.evaluate_proactive_alerts(db):
+                            logging.getLogger("proactive").warning(
+                                "[PROACTIVE] %s %s", a.severity.upper(), a.message)
                         # Record an uptime sample so the history/stats the app's
                         # panel shows accumulate on their own, not only when an
                         # operator presses "Check Now".

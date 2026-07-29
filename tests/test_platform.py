@@ -47,7 +47,8 @@ def test_system_config_reports_deployment_and_security_posture(client):
     # flat on/off dump, which couldn't distinguish a finding from a fact.
     keys = {p["key"] for p in c["posture"]}
     assert keys == {"require_kms", "require_signed_images", "cosign_verify",
-                    "waf_enabled", "rate_limit", "backups_enabled", "ssl_check_enabled"}
+                    "waf_enabled", "rate_limit", "backups_enabled", "ssl_check_enabled",
+                    "apply_stacks"}
     for control in c["posture"]:
         assert control["detail"]  # every control explains itself either way
         assert control["severity"] == "ok" if control["enabled"] else control["severity"] in ("warning", "info")
@@ -55,6 +56,17 @@ def test_system_config_reports_deployment_and_security_posture(client):
     assert c["summary"]["total"] == len(c["posture"])
     assert c["summary"]["enabled"] == sum(1 for p in c["posture"] if p["enabled"])
     assert c["summary"]["warnings"] == sum(1 for p in c["posture"] if p["severity"] == "warning")
+
+
+def test_dry_run_mode_is_called_out_not_buried(client):
+    """APPLY_STACKS=false means provisioning renders files and starts nothing.
+    A town then looks provisioned while nothing runs, so it has to read as a
+    finding rather than as one more grey config row."""
+    c = client.get("/api/system/config", headers=HEADERS).json()
+    control = next(p for p in c["posture"] if p["key"] == "apply_stacks")
+    assert control["enabled"] is False  # the test env runs dry
+    assert control["severity"] == "warning"
+    assert "never starts anything" in control["detail"]
 
 
 def test_system_config_does_not_duplicate_system_health(client):

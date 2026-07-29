@@ -350,3 +350,52 @@ def _notify(alerts: list[Alert]) -> None:
         httpx.post(url, json={"text": text}, timeout=5.0)
     except Exception:
         pass  # never let notification failure break evaluation
+
+
+def evaluate_proactive_alerts(db: Session) -> list[Alert]:
+    """Raise fleet alerts for leading-indicator checks that have crossed a
+    threshold, and clear them when the check recovers.
+
+    These are control-plane-wide rather than per-town, so they are stored with
+    ``tenant_id = None`` (the column is already nullable). Previously a warning
+    only reached stdout, which means it was invisible to anyone who wasn't
+    tailing container logs — a disk filling up would surface as an outage
+    instead of a warning, which is the exact failure the proactive engine
+    exists to prevent.
+    """
+    from orchestrator import proactive_health
+
+    result = proactive_health.evaluate(db)
+    open_alerts = db.execute(
+        select(Alert).where(Alert.acknowledged_at.is_(None),
+                            Alert.kind.like("proactive:%"))
+    ).scalars().all()
+    open_by_kind = {a.kind: a for a in open_alerts}
+
+    new: list[Alert] = []
+    for check in result["checks"]:
+        kind = f"proactive:{check['key']}"
+        if check["status"] in ("warning", "critical"):
+            existing = open_by_kind.get(kind)
+            if existing:
+                # Keep an open alert current — a check can worsen while open.
+                existing.severity = check["status"]
+                existing.message = f"{check['label']}: {check['message']}"
+                continue
+            alert = Alert(
+                tenant_id=None, tenant_slug=None, kind=kind,
+                severity=check["status"],
+                message=f"{check['label']}: {check['message']}"
+                        + (f" → {check['action']}" if check["action"] else ""),
+            )
+            db.add(alert)
+            new.append(alert)
+        elif check["status"] == "ok" and kind in open_by_kind:
+            # Recovered — close it rather than leaving a stale alert that
+            # trains operators to ignore the list.
+            open_by_kind[kind].acknowledged_at = utcnow()
+            open_by_kind[kind].acknowledged_by = "system"
+
+    if new:
+        _notify(new)
+    return new
