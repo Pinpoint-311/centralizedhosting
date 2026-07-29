@@ -94,26 +94,40 @@ def create_user(body: UserCreate, db: Session = Depends(get_db), actor: str = De
     return _out(user)
 
 
-@router.put("/users/{user_id}")
-def update_user(user_id: int, body: UserUpdate, db: Session = Depends(get_db),
-                actor: str = Depends(require_admin)):
+@router.get("/users/{user_id}")
+def get_user(user_id: int, db: Session = Depends(get_db), _: str = Depends(require_admin)):
+    """Get user by ID (admin only)."""
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(404, "User not found")
-    data = body.model_dump(exclude_unset=True)
-    if "email" in data and data["email"]:
-        email = data["email"].strip().lower()
+    return _out(user)
+
+
+@router.put("/users/{user_id}")
+def update_user(user_id: int, body: UserUpdate, db: Session = Depends(get_db),
+                actor: str = Depends(require_admin)):
+    """Update user (admin only)."""
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    # The app's setattr loop over exclude_unset fields, with the two guards the
+    # control plane needs: email uniqueness, and normalising email to lowercase
+    # (SSO matches operators on it, so a case variant must not create a rival row).
+    update_data = body.model_dump(exclude_unset=True)
+    if update_data.get("email"):
+        email = update_data["email"].strip().lower()
         clash = db.execute(
             select(User).where(func.lower(User.email) == email, User.id != user_id)
         ).scalar_one_or_none()
         if clash:
-            raise HTTPException(409, "Email already exists")
-        user.email = email
-    if "full_name" in data:
-        user.full_name = (data["full_name"] or None)
-    if "is_active" in data and data["is_active"] is not None:
-        user.is_active = bool(data["is_active"])
-    audit.record(db, actor, "user.updated", user.username, fields=sorted(data.keys()))
+            raise HTTPException(400, "Email already exists")
+        update_data["email"] = email
+    for field, value in update_data.items():
+        if value is not None:
+            setattr(user, field, value)
+
+    audit.record(db, actor, "user.updated", user.username, fields=sorted(update_data.keys()))
     db.commit()
     db.refresh(user)
     return _out(user)

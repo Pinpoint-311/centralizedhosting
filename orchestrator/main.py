@@ -72,6 +72,12 @@ async def _lifespan(app: FastAPI):
                                     "[PROACTIVE] %s %s: %s %s",
                                     c["status"].upper(), c["label"], c["message"], c["action"],
                                 )
+                        # Record an uptime sample so the history/stats the app's
+                        # panel shows accumulate on their own, not only when an
+                        # operator presses "Check Now".
+                        from orchestrator.api.platform import trigger_uptime_check
+
+                        trigger_uptime_check(db=db, _="system")
                         db.commit()
                 except Exception:
                     pass  # never let the background loop crash the app

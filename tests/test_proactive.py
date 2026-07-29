@@ -23,8 +23,9 @@ def test_endpoint_reports_all_checks(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["overall_status"] in ("ok", "warning", "critical")
+    # The app's check keys, plus the control plane's audit-chain addition.
     keys = {c["key"] for c in body["checks"]}
-    assert keys == {"disk", "memory", "database", "backup", "audit_chain"}
+    assert keys == {"disk", "memory", "db_connections", "backup", "audit_chain"}
     assert "label" in body["summary"]
 
 

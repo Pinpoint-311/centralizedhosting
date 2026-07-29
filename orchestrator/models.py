@@ -410,6 +410,13 @@ class PlatformConfig(Base):
     address: Mapped[str | None] = mapped_column(Text, default=None)
     website: Mapped[str | None] = mapped_column(String(255), default=None)
 
+    # Document-retention configuration — same three fields as the app's
+    # SystemSettings. Here they are the *state's* default policy, which seeds
+    # the managed policy pushed down to each hosted town.
+    retention_state_code: Mapped[str] = mapped_column(String(2), default="NJ")
+    retention_days_override: Mapped[int | None] = mapped_column(Integer, default=None)
+    retention_mode: Mapped[str] = mapped_column(String(20), default="anonymize")  # anonymize|delete
+
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     updated_by: Mapped[str | None] = mapped_column(String(150), default=None)
 
@@ -455,6 +462,24 @@ class FederationConfig(Base):
     default_role: Mapped[str] = mapped_column(String(20), default="viewer")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     updated_by: Mapped[str | None] = mapped_column(String(150), default=None)
+
+
+class UptimeRecord(Base):
+    """Records health check results over time for uptime monitoring dashboard.
+
+    Ported from the app's UptimeRecord. The app tracks its own dependencies
+    (auth0, KMS, Vertex…); the control plane tracks the components it actually
+    owns — its database, secret encryption, and audit chain.
+    """
+
+    __tablename__ = "uptime_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    service_name: Mapped[str] = mapped_column(String(50), index=True)  # database, secret_encryption, …
+    status: Mapped[str] = mapped_column(String(20))  # healthy, degraded, down
+    response_time_ms: Mapped[int | None] = mapped_column(Integer, default=None)
+    error_message: Mapped[str | None] = mapped_column(String(500), default=None)
+    checked_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
 class User(Base):

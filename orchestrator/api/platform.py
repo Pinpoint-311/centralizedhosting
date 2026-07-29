@@ -9,7 +9,7 @@ Municipality management (tenants) and fleet management (insights/operations)
 live elsewhere; this is the provider's own setup.
 """
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -145,11 +145,242 @@ def system_config(_: str = Depends(require_operator)):
 
 @router.get("/system/proactive")
 def system_proactive(db: Session = Depends(get_db), _: str = Depends(require_panel_token)):
-    """Leading-indicator health — warns before something fails (disk, memory,
-    database, backup freshness, audit chain). Ported from the app's engine."""
+    """Leading-indicator health for admins: per-check status, values, and the
+    suggested action. Ported from the app's /health/proactive."""
     from orchestrator import proactive_health
 
     return proactive_health.evaluate(db)
+
+
+# ---------------------------------------------------------------- retention
+# Ported from the app's /system/retention/* endpoints. In the app these set a
+# town's own policy; here they set the *state's* default, which seeds the
+# managed policy pushed to every hosted town.
+
+@router.get("/system/retention/states")
+def get_retention_states(_: str = Depends(require_operator)):
+    """Get all supported states with their retention policies."""
+    from orchestrator.retention_policy import get_all_states
+
+    return get_all_states()
+
+
+@router.get("/system/retention/policy")
+def get_current_retention_policy(db: Session = Depends(get_db),
+                                 _: str = Depends(require_operator)):
+    """Get current retention policy configuration."""
+    from orchestrator.retention_policy import get_retention_policy
+
+    cfg = get_config(db)
+    state_code = cfg.retention_state_code if cfg else "NJ"
+    override_days = cfg.retention_days_override if cfg else None
+    mode = cfg.retention_mode if cfg else "anonymize"
+
+    policy = get_retention_policy(state_code)
+    towns = db.execute(select(func.count()).select_from(Tenant)).scalar_one()
+    return {
+        "state_code": state_code,
+        "policy": policy,
+        "override_days": override_days,
+        "effective_days": override_days if override_days else policy["retention_days"],
+        "mode": mode,
+        # The app reports how many of its records the policy covers; the control
+        # plane's equivalent scope is the towns the policy is pushed to.
+        "stats": {"towns_covered": towns},
+    }
+
+
+class RetentionPolicyUpdate(BaseModel):
+    state_code: str | None = None
+    override_days: int | None = None
+    mode: str | None = None
+
+
+@router.post("/system/retention/policy")
+def update_retention_policy(body: RetentionPolicyUpdate, db: Session = Depends(get_db),
+                            actor: str = Depends(require_admin)):
+    """Update retention policy configuration (admin only)."""
+    from orchestrator.retention_policy import get_retention_policy
+
+    cfg = get_config(db) or PlatformConfig(id="default")
+    if cfg not in db:
+        db.add(cfg)
+
+    if body.state_code:
+        # Validate state code.
+        #
+        # NOTE: the app writes this as
+        #     policy = get_retention_policy(state_code)
+        #     if policy["state_code"] == "DEFAULT" and state_code != "DEFAULT": 400
+        # which never fires — get_retention_policy echoes the *input* code back,
+        # so policy["state_code"] is the typo itself, never "DEFAULT". A
+        # mistyped state is silently accepted there and quietly falls back to
+        # the DEFAULT 7-year policy. Checking the table directly is the same
+        # intent, actually enforced.
+        from orchestrator.retention_policy import STATE_RETENTION_POLICIES
+
+        code = body.state_code.upper()
+        if code not in STATE_RETENTION_POLICIES:
+            raise HTTPException(400, f"Unknown state code: {body.state_code}")
+        cfg.retention_state_code = code
+
+    if body.override_days is not None:
+        # 0 is the explicit "clear the override, revert to the state default"
+        # signal — without this, an override once set could never be removed.
+        if body.override_days == 0:
+            cfg.retention_days_override = None
+        elif body.override_days < 365:
+            raise HTTPException(400, "Override must be at least 365 days (1 year)")
+        else:
+            cfg.retention_days_override = body.override_days
+
+    if body.mode:
+        if body.mode not in ["anonymize", "delete"]:
+            raise HTTPException(400, "Mode must be 'anonymize' or 'delete'")
+        cfg.retention_mode = body.mode
+
+    cfg.updated_by = actor
+    audit.record(db, actor, "retention.policy_updated", cfg.retention_state_code,
+                 override_days=cfg.retention_days_override, mode=cfg.retention_mode)
+    db.commit()
+    db.refresh(cfg)
+    return {
+        "status": "updated",
+        "state_code": cfg.retention_state_code,
+        "override_days": cfg.retention_days_override,
+        "mode": cfg.retention_mode,
+    }
+
+
+# ---------------------------------------------------------------- uptime
+# Ported from the app's health API (/uptime/history, /uptime/stats,
+# /uptime/check-now) — same records, same aggregation, same response shapes.
+
+def _control_plane_checks(db: Session) -> list[tuple[str, callable]]:
+    """The services this control plane owns, in the app's (name, fn) form.
+    Each returns the app's {status, message} check dict."""
+    from orchestrator import audit as audit_mod
+    from orchestrator.encryption import _kms_provider
+
+    def check_database(_db: Session) -> dict:
+        _db.execute(select(1))
+        return {"status": "healthy", "message": "Database connection successful"}
+
+    def check_secret_encryption(_db: Session) -> dict:
+        from orchestrator import security
+
+        probe = security.decrypt_value(security.encrypt_value("healthcheck"))
+        if probe != "healthcheck":
+            return {"status": "down", "message": "Encrypt/decrypt round trip did not match"}
+        return {"status": "healthy", "message": f"Envelope encryption via {_kms_provider()}"}
+
+    def check_audit_chain(_db: Session) -> dict:
+        chain = audit_mod.verify_chain(_db)
+        if chain.get("ok"):
+            return {"status": "healthy", "message": f"{chain.get('entries', 0)} entries chained and intact"}
+        return {"status": "down", "message": f"Chain broken at #{chain.get('broken_at_seq')}"}
+
+    return [
+        ("database", check_database),
+        ("secret_encryption", check_secret_encryption),
+        ("audit_chain", check_audit_chain),
+    ]
+
+
+def record_uptime_check(db: Session, service_name: str, status: str,
+                        response_time_ms: int | None = None,
+                        error_message: str | None = None) -> None:
+    """Record a health check result for a service. Called internally after
+    health checks. Ported from the app's record_uptime_check."""
+    from orchestrator.models import UptimeRecord
+
+    db.add(UptimeRecord(
+        service_name=service_name,
+        status=status,
+        response_time_ms=response_time_ms,
+        error_message=error_message[:500] if error_message else None,
+    ))
+    db.commit()
+
+
+@router.get("/system/uptime/history")
+def get_uptime_history(hours: int = 24, db: Session = Depends(get_db),
+                       _: str = Depends(require_panel_token)):
+    """Uptime history for all services over the specified time period."""
+    from datetime import timedelta
+
+    from orchestrator.models import UptimeRecord, utcnow
+
+    hours = min(hours, 168)  # Cap at 7 days
+    since = utcnow() - timedelta(hours=hours)
+    records = db.execute(
+        select(UptimeRecord).where(UptimeRecord.checked_at >= since)
+        .order_by(UptimeRecord.checked_at.desc())
+    ).scalars().all()
+
+    history: dict[str, list] = {}
+    for record in records:
+        history.setdefault(record.service_name, []).append({
+            "status": record.status,
+            "response_time_ms": record.response_time_ms,
+            "error": record.error_message,
+            "checked_at": record.checked_at.isoformat() if record.checked_at else None,
+        })
+    return {"period_hours": hours, "since": since.isoformat(), "services": history}
+
+
+@router.get("/system/uptime/stats")
+def get_uptime_stats(db: Session = Depends(get_db), _: str = Depends(require_panel_token)):
+    """Aggregated uptime statistics (24h, 7d, 30d percentages)."""
+    from datetime import timedelta
+
+    from sqlalchemy import Integer, case
+    from sqlalchemy import func as sql_func
+
+    from orchestrator.models import UptimeRecord, utcnow
+
+    stats: dict[str, dict] = {}
+    periods = {"24h": 24, "7d": 168, "30d": 720}
+    for period_name, hours in periods.items():
+        since = utcnow() - timedelta(hours=hours)
+        rows = db.execute(
+            select(
+                UptimeRecord.service_name,
+                sql_func.count(UptimeRecord.id).label("total"),
+                sql_func.sum(case((UptimeRecord.status == "healthy", 1), else_=0).cast(Integer))
+                .label("healthy_count"),
+            ).where(UptimeRecord.checked_at >= since).group_by(UptimeRecord.service_name)
+        ).all()
+        for service_name, total, healthy_count in rows:
+            uptime_pct = (healthy_count / total * 100) if total > 0 else 0
+            stats.setdefault(service_name, {})[period_name] = {
+                "uptime_percent": round(uptime_pct, 2),
+                "checks": total,
+                "healthy": healthy_count or 0,
+            }
+    return {"services": stats}
+
+
+@router.post("/system/uptime/check-now")
+def trigger_uptime_check(db: Session = Depends(get_db), _: str = Depends(require_admin)):
+    """Manually trigger an uptime check for all services and record results."""
+    import time
+
+    results = {}
+    for service_name, check_func in _control_plane_checks(db):
+        start = time.time()
+        try:
+            check_result = check_func(db)
+            response_time = int((time.time() - start) * 1000)
+            status = "healthy" if check_result["status"] in ("healthy", "configured", "fallback") else "down"
+            error = None if status == "healthy" else check_result.get("message")
+        except Exception as e:  # noqa: BLE001
+            response_time = int((time.time() - start) * 1000)
+            status = "down"
+            error = str(e)
+        record_uptime_check(db, service_name, status, response_time, error)
+        results[service_name] = {"status": status, "response_time_ms": response_time}
+    return {"checked": len(results), "results": results}
 
 
 @router.get("/system/health")

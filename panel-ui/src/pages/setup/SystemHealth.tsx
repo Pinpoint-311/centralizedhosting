@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-    Server, Database, RefreshCw, HardDrive, Clock,
+    Server, Database, RefreshCw, HardDrive, Clock, Loader2,
     CheckCircle, XCircle, Shield, Cloud, Activity, AlertTriangle, ScrollText, KeyRound,
 } from 'lucide-react'
 import { Card, Button } from '../../components/ui'
 import { api } from '../../lib/api'
-import type { SystemHealth as Health, ProactiveHealth } from '../../lib/types'
+import type { SystemHealth as Health, ProactiveHealth, UptimeStats, UptimeHistory } from '../../lib/types'
 
 /**
  * System Health — the app's OperationsPanel, ported to the control plane.
@@ -46,7 +46,10 @@ const CHECK_LABEL: Record<string, string> = {
 export function SystemHealth() {
     const [health, setHealth] = useState<Health | null>(null)
     const [proactive, setProactive] = useState<ProactiveHealth | null>(null)
+    const [uptimeStats, setUptimeStats] = useState<UptimeStats | null>(null)
+    const [uptimeHistory, setUptimeHistory] = useState<UptimeHistory | null>(null)
     const [isLoading, setIsLoading] = useState(false)
+    const [uptimeCheckLoading, setUptimeCheckLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
     const fetchAll = async () => {
@@ -55,19 +58,41 @@ export function SystemHealth() {
         try {
             // Each source is fetched independently and tolerant of failure, so one
             // failing probe degrades that section instead of blanking the panel.
-            const [healthData, proactiveData] = await Promise.all([
+            const [healthData, proactiveData, statsData, historyData] = await Promise.all([
                 api.systemHealth().catch(() => null),
                 api.systemProactive().catch(() => null),
+                api.getUptimeStats().catch(() => null),
+                api.getUptimeHistory(48).catch(() => null),
             ])
             setHealth(healthData)
             setProactive(proactiveData)
-            if (!healthData && !proactiveData) {
+            setUptimeStats(statsData)
+            setUptimeHistory(historyData)
+            if (!healthData && !proactiveData && !statsData && !historyData) {
                 setError('Failed to fetch system status')
             }
         } catch (err: any) {
             setError(err?.message || 'Failed to fetch system status')
         } finally {
             setIsLoading(false)
+        }
+    }
+
+    const triggerUptimeCheck = async () => {
+        setUptimeCheckLoading(true)
+        try {
+            await api.triggerUptimeCheck()
+            // Refresh data after check
+            const [statsData, historyData] = await Promise.all([
+                api.getUptimeStats().catch(() => null),
+                api.getUptimeHistory(48).catch(() => null),
+            ])
+            setUptimeStats(statsData)
+            setUptimeHistory(historyData)
+        } catch (err) {
+            console.error('Uptime check failed:', err)
+        } finally {
+            setUptimeCheckLoading(false)
         }
     }
 
@@ -202,6 +227,76 @@ export function SystemHealth() {
                     </Card>
                 )
             )}
+
+            {/* Uptime Monitoring */}
+            <Card>
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                        <Clock className="w-5 h-5 text-green-400" />
+                        Uptime Monitoring
+                    </h3>
+                    <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={triggerUptimeCheck}
+                        disabled={uptimeCheckLoading}
+                    >
+                        {uptimeCheckLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                        Check Now
+                    </Button>
+                </div>
+
+                {/* Uptime Stats Cards */}
+                {uptimeStats && Object.keys(uptimeStats.services).length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+                        {Object.entries(uptimeStats.services).map(([serviceName, periods]) => (
+                            <div key={serviceName} className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
+                                <h4 className="text-white font-medium capitalize mb-2">{serviceName.replace(/_/g, ' ')}</h4>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {(['24h', '7d', '30d'] as const).map(period => {
+                                        const stats = periods[period]
+                                        const pct = stats?.uptime_percent ?? 0
+                                        const color = pct >= 99 ? 'text-green-400' : pct >= 95 ? 'text-yellow-400' : 'text-red-400'
+                                        return (
+                                            <div key={period} className="text-center">
+                                                <p className={`text-lg font-bold ${color}`}>{pct.toFixed(1)}%</p>
+                                                <p className="text-gray-500 text-xs">{period}</p>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-gray-400 text-sm mb-4 p-4 bg-slate-800/30 rounded-lg text-center">
+                        No uptime data yet. Click "Check Now" to start monitoring.
+                    </div>
+                )}
+
+                {/* Uptime Timeline (last 48 hours) */}
+                {uptimeHistory && Object.keys(uptimeHistory.services).length > 0 && (
+                    <div className="space-y-3">
+                        <p className="text-gray-400 text-xs">Last 48 hours (newest → oldest)</p>
+                        {Object.entries(uptimeHistory.services).map(([serviceName, checks]) => (
+                            <div key={serviceName} className="flex items-center gap-2">
+                                <span className="text-white text-sm w-28 truncate capitalize">{serviceName.replace(/_/g, ' ')}</span>
+                                <div className="flex-1 flex gap-0.5">
+                                    {checks.slice(0, 48).map((check, idx) => (
+                                        <div
+                                            key={idx}
+                                            className={`w-2 h-6 rounded-sm ${check.status === 'healthy' ? 'bg-green-500' :
+                                                check.status === 'degraded' ? 'bg-yellow-500' : 'bg-red-500'
+                                                }`}
+                                            title={`${check.status} - ${new Date(check.checked_at).toLocaleString()}`}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </Card>
 
             {/* Control-plane checks */}
             {health && (

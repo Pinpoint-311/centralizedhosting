@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Info, ShieldCheck, RotateCw, SlidersHorizontal } from 'lucide-react'
+import { Info, ShieldCheck, RotateCw, SlidersHorizontal, Archive } from 'lucide-react'
 import { api } from '../../lib/api'
-import type { SystemConfig } from '../../lib/types'
-import { Button, Card, Spinner } from '../../components/ui'
+import type { SystemConfig, RetentionPolicy, RetentionState } from '../../lib/types'
+import { Button, Card, Select, Spinner } from '../../components/ui'
 import { getBaseDomain } from '../../lib/config'
 import { useToast } from '../../components/Toast'
 import { useSession } from '../../lib/session'
@@ -27,6 +27,99 @@ function ConfigGroup({ title, values }: { title: string; values: Record<string, 
         ))}
       </div>
     </div>
+  )
+}
+
+/**
+ * Records-retention policy — the app's admin retention settings, ported. The
+ * state table and the effective-days maths are the app's; here the policy is
+ * the hosting organization's default, pushed down to every town it hosts.
+ */
+function RetentionPolicySection() {
+  const toast = useToast()
+  const { can } = useSession()
+  const [states, setStates] = useState<RetentionState[] | null>(null)
+  const [policy, setPolicy] = useState<RetentionPolicy | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  async function load() {
+    try {
+      const [s, p] = await Promise.all([api.retentionStates(), api.retentionPolicy()])
+      setStates(s)
+      setPolicy(p)
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    }
+  }
+  useEffect(() => { load() }, [])
+
+  async function save(body: { state_code?: string; override_days?: number; mode?: string }) {
+    setSaving(true)
+    try {
+      await api.updateRetentionPolicy(body)
+      await load()
+      toast.push('Retention policy updated')
+    } catch (e) {
+      toast.push((e as Error).message, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!policy || !states) return <Card><Spinner /></Card>
+
+  const years = (policy.effective_days / 365).toFixed(1)
+  return (
+    <Card>
+      <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
+        <Archive className="w-5 h-5" /> Records retention
+      </h3>
+      <p className="text-sm text-white/50 mb-4">
+        Your jurisdiction's records-retention rule. This is the default pushed to every municipality
+        you host — a town under managed policy can't shorten it.
+      </p>
+
+      <div className="grid sm:grid-cols-3 gap-4 mb-4">
+        <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10">
+          <div className="text-2xl font-bold text-white">{years} yrs</div>
+          <div className="text-xs text-white/40 mt-0.5">Effective retention</div>
+        </div>
+        <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10">
+          <div className="text-2xl font-bold text-white capitalize">{policy.mode}</div>
+          <div className="text-xs text-white/40 mt-0.5">At expiry</div>
+        </div>
+        <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10">
+          <div className="text-2xl font-bold text-white">{policy.stats.towns_covered}</div>
+          <div className="text-xs text-white/40 mt-0.5">Municipalities covered</div>
+        </div>
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-4">
+        <Select
+          label="Jurisdiction"
+          value={policy.state_code}
+          disabled={!can('admin') || saving}
+          onChange={(e) => save({ state_code: e.target.value })}
+          options={states.map((s) => ({ value: s.code, label: `${s.name} — ${s.retention_years} yrs` }))}
+        />
+        <Select
+          label="At expiry"
+          value={policy.mode}
+          disabled={!can('admin') || saving}
+          onChange={(e) => save({ mode: e.target.value })}
+          options={[
+            { value: 'anonymize', label: 'Anonymize (keep the record, strip personal data)' },
+            { value: 'delete', label: 'Delete the record entirely' },
+          ]}
+        />
+      </div>
+
+      <p className="text-xs text-white/40 mt-3">
+        {policy.policy.name}: {policy.policy.retention_years} years under {policy.policy.public_records_law}
+        {' '}(source: {policy.policy.source}).
+        {policy.override_days ? ` Overridden to ${policy.override_days} days.` : ''}
+      </p>
+    </Card>
   )
 }
 
@@ -100,6 +193,8 @@ export function SystemSettings() {
           </p>
         </div>
       </Card>
+
+      <RetentionPolicySection />
 
       <Card>
         <h3 className="font-semibold text-white mb-1 flex items-center gap-2">

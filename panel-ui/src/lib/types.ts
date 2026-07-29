@@ -207,6 +207,33 @@ export interface WhoAmI {
   require_signed_images: boolean
 }
 
+// Uptime monitoring — the app's UptimeStats / UptimeHistory shapes.
+export interface UptimeStats {
+  services: Record<string, Record<'24h' | '7d' | '30d', { uptime_percent: number; checks: number; healthy: number }>>
+}
+export interface UptimeHistory {
+  period_hours: number
+  since: string
+  services: Record<string, { status: string; response_time_ms: number | null; error: string | null; checked_at: string }[]>
+}
+
+export interface RetentionState {
+  code: string
+  name: string
+  retention_days: number
+  retention_years: number
+  source: string
+  public_records_law: string
+}
+export interface RetentionPolicy {
+  state_code: string
+  policy: RetentionState & { state_code: string }
+  override_days: number | null
+  effective_days: number
+  mode: 'anonymize' | 'delete'
+  stats: { towns_covered: number }
+}
+
 export interface ProactiveCheck {
   key: string
   label: string

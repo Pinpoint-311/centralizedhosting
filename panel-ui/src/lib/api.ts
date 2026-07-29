@@ -23,6 +23,10 @@ import type {
   ProactiveHealth,
   ProviderCatalog,
   ProviderSave,
+  RetentionPolicy,
+  RetentionState,
+  UptimeHistory,
+  UptimeStats,
   ProvisionJob,
   PublicStatus,
   SystemConfig,
@@ -213,7 +217,17 @@ export const api = {
 
   systemHealth: () => req<SystemHealth>('GET', '/api/system/health'),
   systemProactive: () => req<ProactiveHealth>('GET', '/api/system/proactive'),
+  getUptimeStats: () => req<UptimeStats>('GET', '/api/system/uptime/stats'),
+  getUptimeHistory: (hours = 24) => req<UptimeHistory>('GET', `/api/system/uptime/history?hours=${hours}`),
+  triggerUptimeCheck: () =>
+    req<{ checked: number; results: Record<string, { status: string; response_time_ms: number }> }>(
+      'POST', '/api/system/uptime/check-now'),
   systemConfig: () => req<SystemConfig>('GET', '/api/system/config'),
+  retentionStates: () => req<RetentionState[]>('GET', '/api/system/retention/states'),
+  retentionPolicy: () => req<RetentionPolicy>('GET', '/api/system/retention/policy'),
+  updateRetentionPolicy: (body: { state_code?: string; override_days?: number; mode?: string }) =>
+    req<{ status: string; state_code: string; override_days: number | null; mode: string }>(
+      'POST', '/api/system/retention/policy', body),
   operators: () => req<Operators>('GET', '/api/operators'),
 
   // SSO / federation

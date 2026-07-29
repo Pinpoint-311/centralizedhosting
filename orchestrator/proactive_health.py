@@ -16,7 +16,7 @@ import shutil
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -70,12 +70,15 @@ def _check(key: str, label: str, status: str, value, message: str, action: str =
 
 def _disk_check() -> dict:
     try:
-        u = shutil.disk_usage("/")
-        pct = round(u.used / u.total * 100, 1)
+        usage = shutil.disk_usage("/")
+        pct = round(usage.used / usage.total * 100, 1)
         status = classify_metric(pct, warn=80, crit=92)
-        free_gb = round(u.free / (1024 ** 3), 1)
-        return _check("disk", "Disk space", status, pct, f"Disk is {pct}% full ({free_gb} GB free).",
-                      "Delete old backups/logs or expand the volume." if status != "ok" else "")
+        free_gb = round(usage.free / (1024 ** 3), 1)
+        return _check(
+            "disk", "Disk space", status, pct,
+            f"Disk is {pct}% full ({free_gb} GB free).",
+            "Delete old backups/logs or expand the volume before it fills." if status != "ok" else "",
+        )
     except Exception as e:  # noqa: BLE001
         logger.warning("[proactive] disk check failed: %s", e)
         return _check("disk", "Disk space", "unknown", None, "Could not read disk usage.")
@@ -93,53 +96,70 @@ def _memory_check() -> dict:
                 if total is not None and avail is not None:
                     break
         if not total or avail is None:
-            return _check("memory", "Memory", "unknown", None, "Could not read memory stats.")
-        pct = round((total - avail) / total * 100, 1)
+            return _check("memory", "Memory", "unknown", None, "Could not read memory usage.")
+        pct = round((1 - avail / total) * 100, 1)
         status = classify_metric(pct, warn=85, crit=95)
-        return _check("memory", "Memory", status, pct, f"Memory is {pct}% used.",
-                      "Restart the panel process or add RAM." if status != "ok" else "")
+        return _check(
+            "memory", "Memory", status, pct,
+            f"Memory is {pct}% used.",
+            "Restart heavy services or add RAM; sustained high memory can crash containers." if status != "ok" else "",
+        )
     except Exception as e:  # noqa: BLE001
         logger.warning("[proactive] memory check failed: %s", e)
-        return _check("memory", "Memory", "unknown", None, "Could not read memory stats.")
+        return _check("memory", "Memory", "unknown", None, "Could not read memory usage.")
 
 
-def _database_check(db: Session) -> dict:
+def _db_connection_check(db: Session) -> dict:
+    """The app's _db_connection_check. On SQLite there is no connection pool to
+    exhaust, so it degrades to a reachability probe rather than reporting a
+    percentage it can't measure."""
     try:
-        db.execute(select(1))
-    except Exception:  # noqa: BLE001
-        return _check("database", "Database", "critical", None, "The control-plane database is unreachable.",
-                      "Check the database service and PANEL_DATABASE_URL.")
-    # On Postgres, warn as connections approach max_connections.
-    try:
-        if db.bind and db.bind.dialect.name == "postgresql":
-            used = db.execute(select(func.count()).select_from(func.pg_stat_activity())).scalar_one()
-            cap = int(db.execute(select(func.current_setting("max_connections"))).scalar_one())
-            pct = round(used / cap * 100, 1) if cap else None
-            status = classify_metric(pct, warn=75, crit=90)
-            return _check("database", "Database connections", status, pct,
-                          f"{used}/{cap} connections in use ({pct}%).",
-                          "Investigate connection leaks or raise max_connections." if status != "ok" else "")
+        if db.bind is not None and db.bind.dialect.name != "postgresql":
+            db.execute(select(1))
+            return _check("db_connections", "Database", "ok", None, "Database reachable.")
+        used = db.execute(text("SELECT count(*) FROM pg_stat_activity")).scalar()
+        max_conn = int(db.execute(text("SHOW max_connections")).scalar())
+        pct = round(used / max_conn * 100, 1) if max_conn else None
+        status = classify_metric(pct, warn=75, crit=90)
+        return _check(
+            "db_connections", "Database connections", status, pct,
+            f"{used} of {max_conn} connections in use ({pct}%).",
+            "Check for connection leaks or raise the pool/limit before it's exhausted." if status != "ok" else "",
+        )
     except Exception as e:  # noqa: BLE001
-        logger.warning("[proactive] db connections check failed: %s", e)
-    return _check("database", "Database", "ok", None, "Reachable and responding.")
+        logger.warning("[proactive] db connection check failed: %s", e)
+        return _check("db_connections", "Database connections", "unknown", None,
+                      "Could not read connection stats.")
 
 
-def _backup_check(db: Session) -> dict:
+def _backup_age_check(db: Session) -> dict:
+    """The app's _backup_age_check, reading the panel's own backup catalog."""
     from orchestrator.config import settings
     from orchestrator.models import BackupRecord
 
-    if not settings.backups_enabled:
-        return _check("backup", "Backups", "ok", None, "Backups are disabled by configuration.")
-    last = db.execute(
-        select(func.max(BackupRecord.created_at)).where(BackupRecord.status == "completed")
-    ).scalar_one_or_none()
-    if last is None:
-        return _check("backup", "Backups", "warning", None, "No successful backup recorded yet.",
-                      "Run or schedule a backup.")
-    age_h = round((datetime.now(timezone.utc).replace(tzinfo=None) - last).total_seconds() / 3600, 1)
-    status = classify_metric(age_h, warn=36, crit=72)
-    return _check("backup", "Backups", status, age_h, f"Last successful backup was {age_h}h ago.",
-                  "Check the backup loop and object store." if status != "ok" else "")
+    try:
+        if not settings.backups_enabled:
+            return _check("backup", "Backup freshness", "ok", None,
+                          "Backups are disabled by configuration.")
+        last = db.execute(
+            select(func.max(BackupRecord.created_at)).where(BackupRecord.status == "completed")
+        ).scalar_one_or_none()
+        if not last:
+            return _check(
+                "backup", "Backup freshness", "warning", None,
+                "No database backup found yet.",
+                "Run a backup now so a fresh restore point exists.",
+            )
+        hours = (datetime.now(timezone.utc).replace(tzinfo=None) - last).total_seconds() / 3600
+        status = classify_metric(round(hours, 1), warn=36, crit=72)
+        return _check(
+            "backup", "Backup freshness", status, round(hours, 1),
+            f"Last backup was {round(hours)}h ago.",
+            "Backups are stale — verify the backup task is running." if status != "ok" else "",
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[proactive] backup age check failed: %s", e)
+        return _check("backup", "Backup freshness", "unknown", None, "Could not read backup status.")
 
 
 def _audit_chain_check(db: Session) -> dict:
@@ -155,16 +175,20 @@ def _audit_chain_check(db: Session) -> dict:
 
 
 def collect_checks(db: Session) -> list[dict]:
+    """Run all proactive checks. Never raises; failed probes return 'unknown'."""
     return [
         _disk_check(),
         _memory_check(),
-        _database_check(db),
-        _backup_check(db),
+        _db_connection_check(db),
+        _backup_age_check(db),
+        # Control-plane addition: the app has no tamper-evident audit chain, and
+        # a broken one is exactly the sort of thing to surface before an audit.
         _audit_chain_check(db),
     ]
 
 
 def evaluate(db: Session) -> dict:
+    """Full proactive-health evaluation for the API/alerting layers."""
     checks = collect_checks(db)
     overall = rollup_status(checks)
     return {
