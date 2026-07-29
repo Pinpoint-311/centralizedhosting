@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Rocket, Plus, GitBranch, ChevronRight, PlayCircle, Undo2, Check } from 'lucide-react'
 import { api } from '../lib/api'
-import type { Release, Rollout } from '../lib/types'
+import type { Release, Rollout, UpstreamStatus } from '../lib/types'
 import { Badge, Button, Card, EmptyState, Input, Modal, Spinner, Textarea, timeAgo } from '../components/ui'
 import { PageToolbar } from '../components/Shell'
 import { useToast } from '../components/Toast'
+import { UpstreamUpdate } from '../components/UpstreamUpdate'
 
 const ROLLOUT_VARIANT: Record<string, 'success' | 'warning' | 'danger' | 'info' | 'default'> = {
   completed: 'success',
@@ -20,14 +21,22 @@ export function Releases() {
   const toast = useToast()
   const [releases, setReleases] = useState<Release[]>([])
   const [rollouts, setRollouts] = useState<Rollout[]>([])
+  const [upstream, setUpstream] = useState<UpstreamStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [showPublish, setShowPublish] = useState(false)
   const [busy, setBusy] = useState('')
 
   async function load() {
-    const [r, ro] = await Promise.all([api.listReleases(), api.listRollouts()])
+    const [r, ro, up] = await Promise.all([
+      api.listReleases(),
+      api.listRollouts(),
+      // Never let a registry hiccup blank the page — the releases below are
+      // still actionable without it.
+      api.upstreamStatus().catch(() => null),
+    ])
     setReleases(r)
     setRollouts(ro)
+    setUpstream(up)
   }
   // Rollouts run in the background, a wave at a time, so poll while one is
   // mid-flight instead of showing a status frozen at the moment of the click.
@@ -98,6 +107,8 @@ export function Releases() {
           Publish release
         </Button>
       </PageToolbar>
+
+      {upstream?.enabled && <UpstreamUpdate status={upstream} onChanged={load} />}
 
       <div className="grid lg:grid-cols-2 gap-6">
         <div>

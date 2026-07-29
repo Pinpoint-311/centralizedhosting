@@ -565,3 +565,44 @@ export interface OsmResult {
   lon: string | null
   geojson: unknown
 }
+
+/** An upstream app build the panel found but has NOT deployed. */
+export interface UpstreamCandidate {
+  id: string
+  version: string
+  channel: string
+  git_sha: string | null
+  backend_image: string
+  frontend_image: string
+  backend_digest: string
+  frontend_digest: string
+  db_revision: string | null
+  min_db_revision: string | null
+  stamp_complete: boolean
+  signature_verified: boolean
+  signature_detail: string | null
+  status: 'available' | 'approved' | 'rejected' | 'superseded'
+  discovered_at: string
+  reviewed_at: string | null
+  reviewed_by: string | null
+  review_note: string | null
+  release_id: string | null
+  compare_url: string | null
+  schema_change: boolean
+  blockers: string[]
+}
+
+export interface UpstreamStatus {
+  enabled: boolean
+  channel: string
+  poll_seconds: number
+  backend_image: string
+  frontend_image: string
+  signature_enforced: boolean
+  migrations_enabled: boolean
+  backup_before_migrate: boolean
+  latest_release: string | null
+  fleet_versions: string[]
+  fleet_drift: boolean
+  pending: UpstreamCandidate | null
+}

@@ -33,6 +33,8 @@ import type {
   SystemHealth,
   Release,
   Rollout,
+  UpstreamCandidate,
+  UpstreamStatus,
   SecretOut,
   SlaSummary,
   Tenant,
@@ -169,6 +171,15 @@ export const api = {
   startRollout: (body: Record<string, unknown>) => req<Rollout>('POST', '/api/rollouts', body),
   promoteRollout: (id: string) => req<Rollout>('POST', `/api/rollouts/${id}/promote`),
   rollbackRollout: (id: string) => req<Rollout>('POST', `/api/rollouts/${id}/rollback`),
+
+  upstreamStatus: () => req<UpstreamStatus>('GET', '/api/upstream/status'),
+  checkUpstream: () =>
+    req<{ new: boolean; candidate: UpstreamCandidate }>('POST', '/api/upstream/check'),
+  listCandidates: () => req<UpstreamCandidate[]>('GET', '/api/upstream/candidates'),
+  approveCandidate: (id: string, body: Record<string, unknown>) =>
+    req<UpstreamCandidate>('POST', `/api/upstream/candidates/${id}/approve`, body),
+  rejectCandidate: (id: string, body: Record<string, unknown>) =>
+    req<UpstreamCandidate>('POST', `/api/upstream/candidates/${id}/reject`, body),
 
   // fleet
   fleetSummary: () => req<FleetSummary>('GET', '/api/fleet/summary'),

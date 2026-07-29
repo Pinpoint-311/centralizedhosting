@@ -130,9 +130,17 @@ def preview_stack(
 
 
 def apply_stack(tenant: Tenant) -> str:
-    """`docker compose up -d` for the town. Only called when APPLY_STACKS=true."""
+    """`docker compose up -d` for the town. Only called when APPLY_STACKS=true.
+
+    Recreates the containers whose image or config changed and leaves the rest
+    running. `--remove-orphans` clears containers for services a newer release
+    dropped from the compose file, which would otherwise keep running forever on
+    the old image. Named volumes (the database, uploads) are never touched —
+    this is `up`, never `down`, and never `--volumes`.
+    """
     result = subprocess.run(
-        ["docker", "compose", "--project-name", f"pp311-{tenant.slug}", "up", "-d", "--wait"],
+        ["docker", "compose", "--project-name", f"pp311-{tenant.slug}",
+         "up", "-d", "--wait", "--remove-orphans"],
         cwd=tenant_dir(tenant),
         capture_output=True,
         text=True,

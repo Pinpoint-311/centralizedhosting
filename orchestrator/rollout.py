@@ -18,7 +18,7 @@ from typing import Callable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from orchestrator import audit, stack
+from orchestrator import audit, migrator, stack
 from orchestrator.app_client import client_for_tenant
 from orchestrator.config import settings
 from orchestrator.models import (
@@ -82,15 +82,26 @@ def _secrets_bundle(db: Session, tenant: Tenant) -> dict[str, str]:
     return bundle(db, tenant)
 
 
-def _precheck_compatibility(release: Release, tenant: Tenant, probe: HealthProbe) -> str | None:
+_UNREACHABLE: dict = {}
+
+
+def _pre_upgrade_health(tenant: Tenant, probe: HealthProbe) -> dict:
+    """One health read before the upgrade, shared by the compatibility gate and
+    the migration decision. Probing twice would double the load on a town and
+    let the two checks disagree about the schema they saw."""
+    try:
+        return probe(tenant)
+    except Exception:  # noqa: BLE001
+        return _UNREACHABLE
+
+
+def _precheck_compatibility(release: Release, health: dict) -> str | None:
     """Return an error string when the town's schema is outside the release's
     declared compatibility window; None when OK or unverifiable."""
     if not release.min_db_revision:
         return None
-    try:
-        health = probe(tenant)
-    except Exception:
-        return None if not settings.apply_stacks else "town unreachable for pre-flight check"
+    if health is _UNREACHABLE:
+        return "town unreachable for pre-flight check" if settings.apply_stacks else None
     observed = health.get("db_revision")
     if observed and observed not in {release.min_db_revision, release.db_revision}:
         return (
@@ -100,17 +111,34 @@ def _precheck_compatibility(release: Release, tenant: Tenant, probe: HealthProbe
     return None
 
 
+def _needs_migration(release: Release, health: dict) -> bool:
+    """True unless the town is demonstrably already on the release's schema.
+
+    Unknown means yes: ``alembic upgrade head`` is idempotent, so running it
+    against an already-current database costs a no-op, while skipping it on a
+    stale one ships code against a schema that cannot serve it.
+    """
+    if not settings.migrate_on_upgrade:
+        return False
+    if not release.db_revision or health is _UNREACHABLE:
+        return True
+    return health.get("db_revision") != release.db_revision
+
+
 def _upgrade_step(db: Session, step: RolloutStep, release: Release, probe: HealthProbe) -> bool:
     """Upgrade one town and verify. Returns True when the step is healthy
     (or unverifiable in render-only mode)."""
     tenant = step.tenant
     step.status = "upgrading"
 
-    incompat = _precheck_compatibility(release, tenant, probe)
+    before = _pre_upgrade_health(tenant, probe)
+    incompat = _precheck_compatibility(release, before)
     if incompat:
         step.status = "failed"
         step.detail = f"pre-flight: {incompat}"
         return False
+
+    migrating = _needs_migration(release, before)
 
     tenant.target_version = release.version
     stack.render_stack(
@@ -124,12 +152,24 @@ def _upgrade_step(db: Session, step: RolloutStep, release: Release, probe: Healt
         step.status = "unverified"
         step.detail = "stack re-rendered; apply disabled so health not verified"
         return True
+
+    # Backup → pull → migrate → recreate. See migrator.py for why this order.
+    notes: list[str] = []
     try:
-        stack.apply_stack(tenant)
+        if migrating:
+            notes.append(migrator.backup_before_migration(db, tenant))
+        notes.append(migrator.pull_images(tenant))
+        if migrating:
+            notes.append(f"migrated: {migrator.run_migrations(tenant)}"[:400])
+        notes.append(migrator.recreate_services(tenant))
         health = probe(tenant)
+    except migrator.MigrationError as exc:
+        step.status = "failed"
+        step.detail = " | ".join([*notes, f"upgrade failed: {exc}"])[:2000]
+        return False
     except Exception as exc:  # noqa: BLE001
         step.status = "failed"
-        step.detail = f"upgrade/probe failed: {exc}"[:2000]
+        step.detail = " | ".join([*notes, f"upgrade/probe failed: {exc}"])[:2000]
         return False
 
     if health.get("version") != release.version:
@@ -145,7 +185,9 @@ def _upgrade_step(db: Session, step: RolloutStep, release: Release, probe: Healt
         return False
 
     step.status = "healthy"
-    step.detail = f"healthy on {release.version}"
+    # Keep the migration/backup trail on the step: after an incident the first
+    # question is whether this town was snapshotted before its schema moved.
+    step.detail = " | ".join([f"healthy on {release.version}", *notes])[:2000]
     tenant.running_version = release.version
     return True
 

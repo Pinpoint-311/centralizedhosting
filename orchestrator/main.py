@@ -31,6 +31,7 @@ from orchestrator.api import (
     state_credentials,
     status_api,
     tenants,
+    upstream as upstream_api,
     users,
 )
 from orchestrator.db import init_db
@@ -130,6 +131,35 @@ async def _lifespan(app: FastAPI):
 
         tasks.append(asyncio.create_task(_backup_loop()))
 
+    if (settings.upstream_check_enabled and settings.upstream_check_seconds
+            and settings.upstream_check_seconds > 0):
+        async def _upstream_loop():
+            """Watch the release channel. Files candidates; never deploys.
+
+            Polling is safe precisely because discovery and deployment are
+            separate: the worst outcome of an automatic check is a row waiting
+            for a human. Leased like the other loops so one process checks.
+            """
+            from orchestrator import cluster, upstream
+            from orchestrator.db import SessionLocal
+
+            def _run(SessionLocal):
+                with SessionLocal() as db:
+                    upstream.check(db, actor="system")
+
+            while True:
+                await asyncio.sleep(settings.upstream_check_seconds)
+                try:
+                    with SessionLocal() as db:
+                        if not cluster.acquire(db, "upstream_loop"):
+                            continue
+                    # Registry round-trips are blocking; keep them off the loop.
+                    await asyncio.to_thread(_run, SessionLocal)
+                except Exception:
+                    pass  # a registry outage must not crash the panel
+
+        tasks.append(asyncio.create_task(_upstream_loop()))
+
     yield
 
     for task in tasks:
@@ -142,7 +172,7 @@ async def _lifespan(app: FastAPI):
         from orchestrator.db import SessionLocal
 
         with SessionLocal() as db:
-            for lease in ("alert_loop", "telemetry_loop", "backup_loop"):
+            for lease in ("alert_loop", "telemetry_loop", "backup_loop", "upstream_loop"):
                 cluster.release(db, lease)
 
 
@@ -248,6 +278,7 @@ def create_app() -> FastAPI:
     app.include_router(managed_api.router)
     app.include_router(analytics_api.router)
     app.include_router(status_api.router)
+    app.include_router(upstream_api.router)
 
     @app.get("/healthz", tags=["meta"])
     def healthz():

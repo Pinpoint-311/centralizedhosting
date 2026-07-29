@@ -86,8 +86,24 @@ def test_promote_requires_canary_passed(client):
 
 def _enable_applied_mode(monkeypatch):
     """Pretend stacks really run: apply is a no-op, health comes from a probe.
-    Called AFTER fleet provisioning so provisioning itself stays render-only."""
+    Called AFTER fleet provisioning so provisioning itself stays render-only.
+
+    An applied upgrade also pulls images and runs the town's migrations, so the
+    compose calls behind those are stubbed too — reporting a tracked schema
+    sitting on the release's min revision, which is the ordinary upgrade case.
+    """
+    import subprocess
+
+    from orchestrator import migrator
+
+    def fake_compose(tenant, *args, timeout=0):
+        out = ""
+        if args[:1] == ("exec",):  # schema_state probes
+            out = "t" if "to_regclass" in args[-1] else "rev_a"
+        return subprocess.CompletedProcess(args, 0, out, "")
+
     monkeypatch.setattr(settings, "apply_stacks", True)
+    monkeypatch.setattr(migrator, "_compose", fake_compose)
     monkeypatch.setattr(stack, "apply_stack", lambda tenant: "ok")
     monkeypatch.setattr(stack, "down_stack", lambda tenant, remove_volumes=False: None)
 

@@ -119,6 +119,41 @@ class Settings(BaseSettings):
     backend_image: str = "ghcr.io/pinpoint-311/pinpoint-311-backend"
     frontend_image: str = "ghcr.io/pinpoint-311/pinpoint-311-frontend"
 
+    # ---- Upstream app updates ------------------------------------------------
+    # The panel watches ONE tag on the two images above (never an arbitrary URL —
+    # the registry host and repository are derived from those settings, so a
+    # candidate can only ever come from the fleet's own images). It resolves that
+    # tag to an immutable digest, reads the build's version/migration stamp from
+    # the image labels, and files a CANDIDATE. Nothing reaches a town until an
+    # operator approves it; there is no auto-deploy path, by design.
+    upstream_check_enabled: bool = True
+    upstream_channel: str = "latest"
+    # Seconds between automatic checks. 0 disables polling — operators can still
+    # check on demand. Checking never deploys, so polling is safe to leave on.
+    upstream_check_seconds: int = 0
+    # Read-only registry credential for a private package (GHCR accepts a PAT
+    # with read:packages). Anonymous pulls work for public packages.
+    upstream_registry_token: str = ""
+    upstream_registry_timeout: float = 20.0
+    # Source repo, used only to build human-facing compare/changelog links shown
+    # next to a candidate. Never fetched or executed.
+    upstream_repo: str = "Pinpoint-311/Pinpoint-311"
+
+    # ---- Upgrade execution ---------------------------------------------------
+    # Run `alembic upgrade head` inside the town's own backend container before
+    # the new build starts serving. Off means the panel would deploy code whose
+    # migrations never ran, which the canary's db_revision gate then fails.
+    migrate_on_upgrade: bool = True
+    migration_timeout_seconds: int = 900
+    # Take a fresh backup of a town immediately before its schema is migrated.
+    # Requires BACKUPS_ENABLED; with backups off there is nothing to restore to
+    # and the pre-migration snapshot is skipped (surfaced in the step detail).
+    backup_before_migrate: bool = True
+    # Host front-proxy reload after a fleet change, so new/changed town site
+    # blocks take effect. Empty = operator reloads Caddy themselves.
+    # e.g. "docker exec pp311-caddy caddy reload --config /etc/caddy/Caddyfile"
+    caddy_reload_command: str = ""
+
     # Google Maps for the panel's own State Map (the same Maps JS SDK the app
     # uses). This is the panel's operational key, separate from the "maps"
     # credential the state may broker to towns. A Maps JS key is meant to be

@@ -185,6 +185,53 @@ class StateCredential(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
+class UpstreamStatus:
+    AVAILABLE = "available"      # discovered, awaiting a human decision
+    APPROVED = "approved"        # an operator accepted it; a Release now exists
+    REJECTED = "rejected"        # an operator declined it; never offered again
+    SUPERSEDED = "superseded"    # a newer candidate arrived before this was acted on
+
+
+class UpstreamCandidate(Base):
+    """An upstream app build the panel found but has NOT deployed.
+
+    The split between this and Release is the human-in-the-loop seam: discovery
+    is automatic and continuous, publishing is a deliberate operator act. A row
+    here has touched nothing — it is a proposal carrying everything needed to
+    judge it (immutable digests, the migration delta, signature verdict).
+    """
+
+    __tablename__ = "upstream_candidates"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    # Digest pair identifies the build; the same version rebuilt is a new row.
+    backend_digest: Mapped[str] = mapped_column(String(80), index=True)
+    frontend_digest: Mapped[str] = mapped_column(String(80))
+    backend_image: Mapped[str] = mapped_column(String(255))
+    frontend_image: Mapped[str] = mapped_column(String(255))
+    channel: Mapped[str] = mapped_column(String(64), default="latest")
+
+    version: Mapped[str] = mapped_column(String(64))
+    git_sha: Mapped[str | None] = mapped_column(String(64), default=None)
+    db_revision: Mapped[str | None] = mapped_column(String(64), default=None)
+    min_db_revision: Mapped[str | None] = mapped_column(String(64), default=None)
+
+    # Verdict recorded at discovery so the reviewer sees it; re-checked at
+    # approval, because a candidate can sit here for days.
+    signature_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    signature_detail: Mapped[str | None] = mapped_column(Text, default=None)
+    # True when the build's own labels supplied the migration stamp. False means
+    # the image predates label stamping and the operator must supply it.
+    stamp_complete: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    status: Mapped[str] = mapped_column(String(16), default=UpstreamStatus.AVAILABLE, index=True)
+    discovered_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    reviewed_by: Mapped[str | None] = mapped_column(String(128), default=None)
+    review_note: Mapped[str | None] = mapped_column(Text, default=None)
+    release_id: Mapped[str | None] = mapped_column(ForeignKey("releases.id"), default=None)
+
+
 class Release(Base):
     """B3 — a published, versioned app image plus its DB compatibility stamp."""
 

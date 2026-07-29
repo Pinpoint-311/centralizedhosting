@@ -1,6 +1,7 @@
 """B1 tenant registry + B2 provisioning + lifecycle (suspend/resume/decommission)."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -363,3 +364,85 @@ def decommission_tenant(
         raise HTTPException(409, "Tenant already decommissioned")
     provisioner.decommission(db, tenant, actor)
     return tenant
+
+
+class SchemaAdoptBody(BaseModel):
+    revision: str = Field(description="The Alembic revision this town's schema already matches")
+    confirm_slug: str = Field(description="Must equal the tenant slug")
+
+
+@router.get("/{tenant_id}/schema")
+def tenant_schema_state(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_panel_token),
+):
+    """Whether this town's schema is tracked by Alembic, and at what revision.
+
+    'untracked' means the database has tables but no alembic_version row — the
+    app builds its schema with create_all at boot and its migration chain is
+    supplemental, so a town provisioned that way has never been stamped. Those
+    towns block upgrades that carry a migration until they are adopted.
+    """
+    from orchestrator import migrator
+
+    tenant = _get_tenant(db, tenant_id)
+    if not settings.apply_stacks:
+        return {"state": "unknown", "revision": None,
+                "detail": "APPLY_STACKS=false — no running database to inspect"}
+    try:
+        state, revision = migrator.schema_state(tenant)
+    except migrator.MigrationError as exc:
+        return {"state": "unknown", "revision": None, "detail": str(exc)}
+    return {
+        "state": state,
+        "revision": revision,
+        "detail": {
+            migrator.TRACKED: "Alembic tracks this schema; upgrades run normally.",
+            migrator.EMPTY: "No tables yet — the app creates them on first boot.",
+            migrator.UNTRACKED: (
+                "Tables exist but Alembic has never run here. Adopt the town at the "
+                "revision its schema matches before an upgrade carrying a migration."
+            ),
+        }[state],
+    }
+
+
+@router.post("/{tenant_id}/schema/adopt")
+def adopt_tenant_schema(
+    tenant_id: str,
+    body: SchemaAdoptBody,
+    db: Session = Depends(get_db),
+    actor: str = Depends(require_operator),
+):
+    """Record an Alembic baseline for a town whose schema predates tracking.
+
+    Deliberately manual. Stamping asserts "the schema equals this revision", and
+    every later migration builds on that claim — so naming the wrong revision
+    silently corrupts the town's upgrade path. The panel will not guess, which is
+    why this is an operator action with a slug confirmation rather than a
+    fallback inside the rollout.
+    """
+    from orchestrator import migrator
+
+    tenant = _get_tenant(db, tenant_id)
+    if body.confirm_slug != tenant.slug:
+        raise HTTPException(400, "confirm_slug does not match — adoption aborted")
+    if not settings.apply_stacks:
+        raise HTTPException(409, "APPLY_STACKS=false — there is no database to stamp")
+
+    state, revision = migrator.schema_state(tenant)
+    if state == migrator.TRACKED:
+        raise HTTPException(409, f"Already tracked at {revision}; nothing to adopt")
+    if state == migrator.EMPTY:
+        raise HTTPException(
+            409, "This town has no schema yet — provision it before adopting a baseline")
+
+    try:
+        detail = migrator.stamp_revision(tenant, body.revision)
+    except migrator.MigrationError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+    audit.record(db, actor, "tenant.schema_adopted", tenant.id, revision=body.revision)
+    db.commit()
+    return {"state": migrator.TRACKED, "revision": body.revision, "detail": detail}
