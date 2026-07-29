@@ -69,6 +69,20 @@ export function StateMap() {
 
         // Color each town by status; polygons filled, points as circles.
         map.data.setStyle((feature: any) => {
+          // The hosting organization's own outline is the base the towns sit
+          // inside — drawn as an unfilled dashed boundary so it frames the
+          // fleet without competing with any town's status colour.
+          if (feature.getProperty('kind') === 'jurisdiction') {
+            return {
+              fillColor: '#818cf8',
+              fillOpacity: 0.05,
+              strokeColor: '#a5b4fc',
+              strokeWeight: 2,
+              strokeOpacity: 0.65,
+              clickable: false,
+              zIndex: 0,
+            }
+          }
           const status = feature.getProperty('status') || 'active'
           const color = STATUS_COLOR[status] || '#94a3b8'
           const isPoint = feature.getGeometry()?.getType() === 'Point'
@@ -130,7 +144,11 @@ export function StateMap() {
 
   if (loading) return <Spinner />
 
-  const feats = fc?.features || []
+  // The jurisdiction outline is a base layer, not a municipality — it must not
+  // count toward "placed" or the empty state would never show for a host that
+  // has set its boundary but onboarded no towns yet.
+  const feats = (fc?.features || []).filter((f) => f.properties.kind !== 'jurisdiction')
+  const jurisdiction = (fc?.features || []).find((f) => f.properties.kind === 'jurisdiction')
   const placed = feats.length
   const withBoundary = feats.filter((f) => f.properties.has_boundary).length
   const statusList = Array.from(new Set(feats.map((f) => f.properties.status)))
@@ -175,6 +193,15 @@ export function StateMap() {
             )}
             {statusList.length > 0 && (
               <div className="flex flex-wrap gap-3 mt-3 px-1">
+                {jurisdiction && (
+                  <span className="flex items-center gap-1.5 text-sm text-white/60">
+                    <span
+                      className="w-3 h-3 rounded-sm border-2"
+                      style={{ borderColor: '#a5b4fc', background: 'rgba(129,140,248,0.08)' }}
+                    />
+                    <span>{jurisdiction.properties.name}</span>
+                  </span>
+                )}
                 {statusList.map((s) => (
                   <span key={s} className="flex items-center gap-1.5 text-sm text-white/60">
                     <span className="w-3 h-3 rounded-full" style={{ background: STATUS_COLOR[s] || '#94a3b8' }} />

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Info, ShieldCheck, RotateCw, SlidersHorizontal, Archive } from 'lucide-react'
+import { Info, ShieldCheck, RotateCw, SlidersHorizontal, Archive, CheckCircle, AlertTriangle } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { api } from '../../lib/api'
-import type { SystemConfig, RetentionPolicy, RetentionState } from '../../lib/types'
+import type { SystemConfig, RetentionPolicy, RetentionState, PostureControl, PostureSummary } from '../../lib/types'
 import { Button, Card, Select, Spinner } from '../../components/ui'
 import { getBaseDomain } from '../../lib/config'
 import { useToast } from '../../components/Toast'
@@ -14,19 +15,73 @@ function fmt(v: unknown): string {
   return String(v)
 }
 
-function ConfigGroup({ title, values }: { title: string; values: Record<string, unknown> }) {
+/**
+ * Security posture — the hardening controls, each with what it means when it's
+ * OFF. This replaced a flat key/value dump of the same values: in that form
+ * `cosign_verify: off` (a real finding) looked identical to `base_domain`
+ * (just a fact), so the card couldn't tell an operator anything was wrong.
+ */
+function SecurityPosture({ posture, summary }: { posture: PostureControl[]; summary: PostureSummary }) {
+  const clean = summary.warnings === 0
   return (
-    <div>
-      <div className="text-xs uppercase tracking-wide text-white/40 mb-2">{title}</div>
-      <div className="space-y-1.5">
-        {Object.entries(values).map(([k, v]) => (
-          <div key={k} className="flex items-center justify-between gap-3 text-sm py-1 border-b border-white/5">
-            <span className="text-white/60">{k.replace(/_/g, ' ')}</span>
-            <span className="text-white font-mono text-xs text-right">{fmt(v)}</span>
-          </div>
-        ))}
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
+        <h3 className="font-semibold text-white flex items-center gap-2">
+          <ShieldCheck className="w-5 h-5" /> Security posture
+        </h3>
+        <span
+          className={`text-xs px-2.5 py-1 rounded-full border ${clean
+            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+            : 'bg-amber-500/15 text-amber-300 border-amber-500/30'}`}
+        >
+          {summary.enabled}/{summary.total} enabled
+          {clean ? '' : ` · ${summary.warnings} gap${summary.warnings === 1 ? '' : 's'}`}
+        </span>
       </div>
-    </div>
+      <p className="text-sm text-white/50 mb-4">
+        Hardening controls for this control plane, set by environment variables on the host. Each
+        one that's off says what that actually exposes.
+      </p>
+      <div className="space-y-2">
+        {posture.map((c) => {
+          const on = c.enabled
+          const warn = c.severity === 'warning'
+          return (
+            <div
+              key={c.key}
+              className={`flex items-start gap-3 p-3 rounded-xl border ${on
+                ? 'bg-white/[0.03] border-white/10'
+                : warn
+                  ? 'bg-amber-500/[0.07] border-amber-500/25'
+                  : 'bg-white/[0.03] border-white/10'}`}
+            >
+              {on ? (
+                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              ) : warn ? (
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              ) : (
+                <Info className="w-4 h-4 text-white/40 shrink-0 mt-0.5" />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium text-white">{c.label}</span>
+                  <span
+                    className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${on
+                      ? 'bg-emerald-500/15 text-emerald-300'
+                      : warn
+                        ? 'bg-amber-500/15 text-amber-300'
+                        : 'bg-white/10 text-white/50'}`}
+                  >
+                    {on ? 'Enabled' : 'Off'}
+                  </span>
+                </div>
+                <p className={`text-xs mt-0.5 ${on ? 'text-white/45' : 'text-white/70'}`}>{c.detail}</p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </Card>
   )
 }
 
@@ -166,33 +221,39 @@ export function SystemSettings() {
         </p>
       </div>
 
-      <Card>
-        <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
-          <SlidersHorizontal className="w-5 h-5" /> Effective configuration
-        </h3>
-        <p className="text-sm text-white/50 mb-4">
-          The control plane's live operational settings. These are set by environment variables on
-          the host and shown read-only — change them in your deployment, not the browser.
-        </p>
-        {!cfg ? (
-          <Spinner />
-        ) : (
-          <div className="grid md:grid-cols-2 gap-x-8 gap-y-5">
-            <ConfigGroup title="Deployment" values={cfg.deployment} />
-            <ConfigGroup title="Security" values={cfg.security} />
-            <ConfigGroup title="Polling" values={cfg.polling} />
-            <ConfigGroup title="Backups" values={cfg.backups} />
-            <ConfigGroup title="Intake" values={cfg.intake} />
-          </div>
-        )}
-        <div className="flex items-start gap-2 mt-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
-          <Info className="w-4 h-4 text-blue-300 shrink-0 mt-0.5" />
-          <p className="text-xs text-blue-100/70">
-            Towns live at <code>&lt;slug&gt;.{BASE_DOMAIN}</code> via wildcard TLS. Base domain,
-            panel token, and encryption keys come from the environment and aren't browser-editable.
-          </p>
-        </div>
-      </Card>
+      {!cfg ? (
+        <Card><Spinner /></Card>
+      ) : (
+        <>
+          <SecurityPosture posture={cfg.posture} summary={cfg.summary} />
+
+          <Card>
+            <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
+              <SlidersHorizontal className="w-5 h-5" /> Deployment
+            </h3>
+            <p className="text-sm text-white/50 mb-4">
+              How this control plane is deployed. Set by environment variables on the host and shown
+              read-only — change them in your deployment, not the browser.
+            </p>
+            <div className="grid sm:grid-cols-2 gap-x-8 gap-y-1.5">
+              {Object.entries(cfg.deployment).map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between gap-3 text-sm py-1 border-b border-white/5">
+                  <span className="text-white/60">{k.replace(/_/g, ' ')}</span>
+                  <span className="text-white font-mono text-xs text-right break-all">{fmt(v)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-start gap-2 mt-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+              <Info className="w-4 h-4 text-blue-300 shrink-0 mt-0.5" />
+              <p className="text-xs text-blue-100/70">
+                Towns live at <code>&lt;slug&gt;.{BASE_DOMAIN}</code> via wildcard TLS. Encryption
+                backend and background-loop intervals live on{' '}
+                <Link to="/setup/health" className="underline hover:text-blue-100">System Health</Link>.
+              </p>
+            </div>
+          </Card>
+        </>
+      )}
 
       <RetentionPolicySection />
 

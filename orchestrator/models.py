@@ -410,6 +410,12 @@ class PlatformConfig(Base):
     address: Mapped[str | None] = mapped_column(Text, default=None)
     website: Mapped[str | None] = mapped_column(String(255), default=None)
 
+    # The hosting organization's own jurisdiction boundary (GeoJSON from
+    # OpenStreetMap). Public geography only — it draws the base outline on the
+    # coverage map that participating municipalities sit inside.
+    boundary: Mapped[dict | None] = mapped_column(JSON, default=None)
+    boundary_label: Mapped[str | None] = mapped_column(String(255), default=None)
+
     # Document-retention configuration — same three fields as the app's
     # SystemSettings. Here they are the *state's* default policy, which seeds
     # the managed policy pushed down to each hosted town.

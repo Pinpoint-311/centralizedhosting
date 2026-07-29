@@ -106,40 +106,88 @@ def put_platform_config(body: PlatformUpdate, db: Session = Depends(get_db),
 
 # ---- System & Compliance ----------------------------------------------------
 
+def _posture_control(key: str, label: str, enabled: bool, severity: str,
+                     on_detail: str, off_impact: str) -> dict:
+    """One hardening control: whether it's on, and — when it isn't — what that
+    actually means. A flat on/off dump can't tell an operator that
+    ``cosign_verify: off`` is a finding while ``base_domain`` is just a fact."""
+    return {
+        "key": key,
+        "label": label,
+        "enabled": enabled,
+        # Severity describes the gap when the control is OFF; ignored when on.
+        "severity": "ok" if enabled else severity,
+        "detail": on_detail if enabled else off_impact,
+    }
+
+
 @router.get("/system/config")
 def system_config(_: str = Depends(require_operator)):
-    """Effective operational configuration (read-only; env-driven)."""
+    """Deployment identity + security posture (read-only; env-driven).
+
+    Deliberately does NOT repeat the KMS backend or the background-loop
+    intervals — System Health owns those, and showing them twice invites the
+    two views to disagree.
+    """
     from orchestrator import encryption
 
     s = settings
+    require_kms = encryption._kms_required()
+    posture = [
+        _posture_control(
+            "require_kms", "Require cloud KMS", require_kms, "warning",
+            "Secret encryption must wrap the data key with a real cloud KMS.",
+            "Secret encryption may fall back to the local panel key if the KMS is unreachable. "
+            "Set REQUIRE_KMS to fail closed instead.",
+        ),
+        _posture_control(
+            "require_signed_images", "Require signed images", s.require_signed_images, "warning",
+            "Only images with a valid signature are deployed to towns.",
+            "Unsigned container images can be deployed to town instances.",
+        ),
+        _posture_control(
+            "cosign_verify", "Verify image signatures", s.cosign_verify, "warning",
+            "Image signatures are checked with cosign before a rollout.",
+            "Image signatures are not actually verified before a rollout, so a signature "
+            "requirement can't be enforced.",
+        ),
+        _posture_control(
+            "waf_enabled", "Web application firewall", s.waf_enabled, "warning",
+            "Caddy applies the WAF ruleset in front of town instances.",
+            "No WAF ruleset is applied in front of town instances.",
+        ),
+        _posture_control(
+            "rate_limit", "API rate limiting", s.rate_limit_rpm > 0, "warning",
+            f"Requests are capped at {s.rate_limit_rpm}/min per client.",
+            "The panel API accepts unlimited request rates from a single client.",
+        ),
+        _posture_control(
+            "backups_enabled", "Backups", s.backups_enabled, "warning",
+            f"Encrypted backups run automatically, kept {s.backup_retention_days} days.",
+            "No automatic backups — the fleet registry could not be restored after a loss.",
+        ),
+        _posture_control(
+            "ssl_check_enabled", "Certificate expiry monitoring", s.ssl_check_enabled, "info",
+            "Town TLS certificates are probed and alert before they expire.",
+            "Certificate expiry isn't monitored, so an expired town certificate surfaces "
+            "as an outage rather than a warning.",
+        ),
+    ]
     return {
         "deployment": {
             "base_domain": s.base_domain,
             "apply_stacks": s.apply_stacks,
             "backend_image": s.backend_image,
             "frontend_image": s.frontend_image,
-        },
-        "polling": {
-            "telemetry_poll_seconds": s.telemetry_poll_seconds,
-            "alert_poll_seconds": s.alert_poll_seconds,
+            "public_requests_enabled": s.public_requests_enabled,
             "telemetry_retention_days": s.telemetry_retention_days,
         },
-        "security": {
-            "kms_provider": encryption._kms_provider(),
-            "kms_backend": encryption.active_backend(),
-            "require_kms": encryption._kms_required(),
-            "require_signed_images": s.require_signed_images,
-            "cosign_verify": s.cosign_verify,
-            "rate_limit_rpm": s.rate_limit_rpm,
-            "waf_enabled": s.waf_enabled,
-            "ssl_check_enabled": s.ssl_check_enabled,
+        "posture": posture,
+        "summary": {
+            "enabled": sum(1 for c in posture if c["enabled"]),
+            "total": len(posture),
+            "warnings": sum(1 for c in posture if c["severity"] == "warning"),
         },
-        "backups": {
-            "enabled": s.backups_enabled,
-            "poll_seconds": s.backup_poll_seconds,
-            "retention_days": s.backup_retention_days,
-        },
-        "intake": {"public_requests_enabled": s.public_requests_enabled},
     }
 
 

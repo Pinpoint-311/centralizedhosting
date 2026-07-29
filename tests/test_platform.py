@@ -39,10 +39,31 @@ def test_system_health_reports_checks_and_fleet(client):
     assert h["version"]
 
 
-def test_system_config_is_readonly_effective_settings(client):
+def test_system_config_reports_deployment_and_security_posture(client):
     c = client.get("/api/system/config", headers=HEADERS).json()
-    assert "security" in c and "kms_backend" in c["security"]
-    assert "backups" in c and "deployment" in c
+    assert "deployment" in c and c["deployment"]["base_domain"]
+
+    # Posture is a list of controls, each carrying what its state means — not a
+    # flat on/off dump, which couldn't distinguish a finding from a fact.
+    keys = {p["key"] for p in c["posture"]}
+    assert keys == {"require_kms", "require_signed_images", "cosign_verify",
+                    "waf_enabled", "rate_limit", "backups_enabled", "ssl_check_enabled"}
+    for control in c["posture"]:
+        assert control["detail"]  # every control explains itself either way
+        assert control["severity"] == "ok" if control["enabled"] else control["severity"] in ("warning", "info")
+
+    assert c["summary"]["total"] == len(c["posture"])
+    assert c["summary"]["enabled"] == sum(1 for p in c["posture"] if p["enabled"])
+    assert c["summary"]["warnings"] == sum(1 for p in c["posture"] if p["severity"] == "warning")
+
+
+def test_system_config_does_not_duplicate_system_health(client):
+    """KMS backend and loop intervals belong to System Health. Repeating them
+    here invites the two views to drift apart."""
+    c = client.get("/api/system/config", headers=HEADERS).json()
+    flat = str(c)
+    assert "kms_backend" not in flat
+    assert "alert_poll_seconds" not in flat and "telemetry_poll_seconds" not in flat
 
 
 def test_operators_lists_actors_and_role_context(client):

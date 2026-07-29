@@ -57,11 +57,27 @@ def map_boundaries(db: Session = Depends(get_db), _: str = Depends(require_panel
     """Every onboarded municipality as a single GeoJSON FeatureCollection —
     each town's public boundary polygon when set, else a point at its location.
     Properties carry the metadata the map needs to style + link each town."""
+    from orchestrator.models import PlatformConfig
+
     tenants = db.execute(
         select(Tenant).where(Tenant.status != TenantStatus.DECOMMISSIONED)
     ).scalars().all()
     features = []
     placed = 0
+
+    # The hosting organization's own outline goes in first so it draws beneath
+    # the towns — the base the participating municipalities sit inside.
+    cfg = db.get(PlatformConfig, "default")
+    jurisdiction_geom = _first_geometry(cfg.boundary) if (cfg and cfg.boundary) else None
+    if jurisdiction_geom:
+        features.append({
+            "type": "Feature",
+            "geometry": jurisdiction_geom,
+            "properties": {
+                "kind": "jurisdiction",
+                "name": cfg.boundary_label or "Jurisdiction",
+            },
+        })
     for t in tenants:
         props = {
             "id": t.id, "name": t.name, "slug": t.slug,
@@ -135,19 +151,64 @@ def osm_boundary(osm_id: int, _: str = Depends(require_operator)):
     return {"osm_id": osm_id, "geojson": resp.json()}
 
 
+class BoundaryUpdate(BaseModel):
+    geojson: dict
+    name: str | None = None
+    center_lat: float | None = None
+    center_lng: float | None = None
+
+
+@router.get("/platform/boundary")
+def get_platform_boundary(db: Session = Depends(get_db), _: str = Depends(require_panel_token)):
+    """The hosting organization's own jurisdiction outline (e.g. the state)."""
+    from orchestrator.models import PlatformConfig
+
+    cfg = db.get(PlatformConfig, "default")
+    return {
+        "boundary": cfg.boundary if cfg else None,
+        "has_boundary": bool(cfg and cfg.boundary),
+        "label": cfg.boundary_label if cfg else None,
+    }
+
+
+@router.put("/platform/boundary")
+def set_platform_boundary(body: BoundaryUpdate, db: Session = Depends(get_db),
+                          actor: str = Depends(require_operator)):
+    """Set the organization's jurisdiction boundary, normally picked from the
+    OpenStreetMap search. It becomes the base outline on the coverage map."""
+    from orchestrator.models import PlatformConfig
+
+    cfg = db.get(PlatformConfig, "default")
+    if cfg is None:
+        cfg = PlatformConfig(id="default")
+        db.add(cfg)
+    label = body.name or "Jurisdiction"
+    cfg.boundary = _normalize_feature_collection(body.geojson, label)
+    cfg.boundary_label = label
+    audit.record(db, actor, "platform.boundary_set", None, label=label)
+    db.commit()
+    return {"status": "ok", "has_boundary": True, "label": label}
+
+
+@router.delete("/platform/boundary")
+def clear_platform_boundary(db: Session = Depends(get_db), actor: str = Depends(require_operator)):
+    from orchestrator.models import PlatformConfig
+
+    cfg = db.get(PlatformConfig, "default")
+    if cfg:
+        cfg.boundary = None
+        cfg.boundary_label = None
+        audit.record(db, actor, "platform.boundary_cleared", None)
+        db.commit()
+    return {"status": "ok", "has_boundary": False}
+
+
 @router.get("/tenants/{tenant_id}/boundary")
 def get_boundary(tenant_id: str, db: Session = Depends(get_db), _: str = Depends(require_panel_token)):
     tenant = db.get(Tenant, tenant_id)
     if not tenant:
         raise HTTPException(404, "Tenant not found")
     return {"boundary": tenant.boundary, "has_boundary": bool(tenant.boundary)}
-
-
-class BoundaryUpdate(BaseModel):
-    geojson: dict
-    name: str | None = None
-    center_lat: float | None = None
-    center_lng: float | None = None
 
 
 @router.put("/tenants/{tenant_id}/boundary")

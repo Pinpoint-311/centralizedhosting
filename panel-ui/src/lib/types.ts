@@ -32,12 +32,24 @@ export interface SystemHealth {
   fleet: { total: number; active: number }
 }
 
+export interface PostureControl {
+  key: string
+  label: string
+  enabled: boolean
+  /** Severity of the gap when the control is OFF; 'ok' when enabled. */
+  severity: 'ok' | 'warning' | 'info'
+  /** What the control does when on, or what it exposes when off. */
+  detail: string
+}
+export interface PostureSummary {
+  enabled: number
+  total: number
+  warnings: number
+}
 export interface SystemConfig {
   deployment: Record<string, unknown>
-  polling: Record<string, unknown>
-  security: Record<string, unknown>
-  backups: Record<string, unknown>
-  intake: Record<string, unknown>
+  posture: PostureControl[]
+  summary: PostureSummary
 }
 
 export interface Operators {
@@ -515,6 +527,9 @@ export interface GeoFeature {
   type: 'Feature'
   geometry: { type: string; coordinates: unknown }
   properties: {
+    // 'jurisdiction' marks the hosting organization's own outline (the base
+    // layer). Municipality features carry the town fields below instead.
+    kind?: 'jurisdiction'
     id: string
     name: string
     slug: string

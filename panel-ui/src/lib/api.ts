@@ -289,6 +289,16 @@ export const api = {
     req<{ status: string; has_boundary: boolean }>('PUT', `/api/tenants/${id}/boundary`, body),
   clearBoundary: (id: string) => req<{ status: string; has_boundary: boolean }>('DELETE', `/api/tenants/${id}/boundary`),
 
+  // The hosting organization's own jurisdiction outline — the base layer the
+  // participating municipalities are drawn inside on the coverage map.
+  getPlatformBoundary: () =>
+    req<{ boundary: GeoFeatureCollection | null; has_boundary: boolean; label: string | null }>(
+      'GET', '/api/platform/boundary'),
+  setPlatformBoundary: (body: { geojson: unknown; name?: string }) =>
+    req<{ status: string; has_boundary: boolean; label: string }>('PUT', '/api/platform/boundary', body),
+  clearPlatformBoundary: () =>
+    req<{ status: string; has_boundary: boolean }>('DELETE', '/api/platform/boundary'),
+
   // status + announcements
   publicStatus: () => req<PublicStatus>('GET', '/api/status'),
   listAnnouncements: () => req<Announcement2[]>('GET', '/api/announcements'),
