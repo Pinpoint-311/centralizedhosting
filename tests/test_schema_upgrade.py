@@ -38,12 +38,12 @@ def _reconcile_against(path, monkeypatch):
     engine = create_engine(f"sqlite:///{path}", connect_args={"check_same_thread": False})
     monkeypatch.setattr(db_module, "engine", engine)
     db_module.Base.metadata.create_all(engine)
-    applied = db_module._reconcile_added_columns()
-    return engine, applied
+    applied, skipped = db_module._reconcile_added_columns()
+    return engine, applied, skipped
 
 
 def test_new_columns_are_added_to_an_existing_table(legacy_db, monkeypatch):
-    engine, applied = _reconcile_against(legacy_db, monkeypatch)
+    engine, applied, _skipped = _reconcile_against(legacy_db, monkeypatch)
     assert any("platform_config.retention_state_code" == a for a in applied)
 
     cols = {c["name"] for c in inspect(engine).get_columns("platform_config")}
@@ -52,7 +52,7 @@ def test_new_columns_are_added_to_an_existing_table(legacy_db, monkeypatch):
 
 
 def test_existing_rows_survive_and_get_the_model_default(legacy_db, monkeypatch):
-    engine, _ = _reconcile_against(legacy_db, monkeypatch)
+    engine, _a, _s = _reconcile_against(legacy_db, monkeypatch)
     with engine.connect() as conn:
         row = conn.execute(text(
             "SELECT org_legal_name, retention_state_code, retention_mode, boundary "
@@ -64,14 +64,14 @@ def test_existing_rows_survive_and_get_the_model_default(legacy_db, monkeypatch)
 
 
 def test_reconciliation_is_idempotent(legacy_db, monkeypatch):
-    _, first = _reconcile_against(legacy_db, monkeypatch)
+    _, first, _s = _reconcile_against(legacy_db, monkeypatch)
     assert first, "expected the first pass to add columns"
     from orchestrator import db as db_module
 
-    assert db_module._reconcile_added_columns() == []  # second pass is a no-op
+    assert db_module._reconcile_added_columns() == ([], [])  # second pass is a no-op
 
 
 def test_fresh_database_needs_no_reconciliation(tmp_path, monkeypatch):
     """create_all builds complete tables, so a new install adds nothing."""
-    engine, applied = _reconcile_against(tmp_path / "fresh.db", monkeypatch)
+    engine, applied, _skipped = _reconcile_against(tmp_path / "fresh.db", monkeypatch)
     assert applied == []

@@ -23,7 +23,7 @@ engine = _make_engine(settings.panel_database_url)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
-def _reconcile_added_columns() -> list[str]:
+def _reconcile_added_columns() -> tuple[list[str], list[str]]:
     """Add columns that exist on the models but not yet in the database.
 
     ``create_all`` only ever CREATEs missing *tables* — it never ALTERs an
@@ -36,11 +36,15 @@ def _reconcile_added_columns() -> list[str]:
     non-nullable with a scalar default we can express as DDL. Anything else
     (drops, renames, type changes, NOT NULL without a default) is reported and
     skipped — those need a real migration, not a startup shim.
+
+    Returns ``(applied, skipped)``. A non-empty ``skipped`` means the database
+    is NOT at the model schema, and the caller must not claim otherwise.
     """
     from sqlalchemy import inspect, text
 
     inspector = inspect(engine)
     applied: list[str] = []
+    skipped: list[str] = []
     with engine.begin() as conn:
         for table in Base.metadata.sorted_tables:
             if not inspector.has_table(table.name):
@@ -60,24 +64,74 @@ def _reconcile_added_columns() -> list[str]:
                     ddl = (f"ALTER TABLE {table.name} ADD COLUMN {column.name} {col_type} "
                            f"NOT NULL DEFAULT {literal}")
                 else:
-                    logger.error(
-                        "Schema drift needs a manual migration: %s.%s is NOT NULL with no "
-                        "scalar default and cannot be added automatically.",
-                        table.name, column.name,
-                    )
+                    skipped.append(f"{table.name}.{column.name}")
                     continue
                 conn.execute(text(ddl))
                 applied.append(f"{table.name}.{column.name}")
     if applied:
         logger.warning("Added missing columns on startup: %s", ", ".join(applied))
-    return applied
+    return applied, skipped
+
+
+def _alembic_config():
+    from pathlib import Path
+
+    from alembic.config import Config
+
+    root = Path(__file__).resolve().parents[1]
+    cfg = Config(str(root / "alembic.ini"))
+    # script_location in the ini is relative to the working directory; pin it to
+    # the package so migrations resolve no matter where the process is started.
+    cfg.set_main_option("script_location", str(root / "migrations"))
+    cfg.set_main_option("sqlalchemy.url", settings.panel_database_url)
+    return cfg
 
 
 def init_db() -> None:
+    """Bring the database to the current schema.
+
+    Alembic owns the schema from here on. Three cases:
+
+    * **Fresh database** — build straight from the models and stamp head. This
+      is also the path a test suite takes after dropping its tables, so the
+      branch keys on a real table rather than on ``alembic_version``, which
+      ``drop_all`` leaves behind.
+    * **Pre-Alembic deployment** — tables exist but nothing tracks revisions.
+      Bridge it additively (missing tables + missing columns) and adopt it at
+      head. This is the one and only job of the column reconciler.
+    * **Tracked database** — run the migrations.
+    """
+    from alembic import command
+    from sqlalchemy import inspect
+
     from orchestrator import models  # noqa: F401  (register tables)
 
-    Base.metadata.create_all(engine)
-    _reconcile_added_columns()
+    inspector = inspect(engine)
+    names = set(inspector.get_table_names())
+    # 'tenants' is the oldest core table — its absence means there is no schema.
+    schema_present = "tenants" in names
+    tracked = "alembic_version" in names
+    cfg = _alembic_config()
+
+    if not schema_present:
+        Base.metadata.create_all(engine)
+        command.stamp(cfg, "head")
+    elif not tracked:
+        logger.warning("Adopting a pre-Alembic database: reconciling to baseline.")
+        Base.metadata.create_all(engine)
+        _applied, skipped = _reconcile_added_columns()
+        if skipped:
+            # Stamping here would tell Alembic the schema is current when it is
+            # not, and every later migration would build on a false baseline.
+            # Refuse to start instead.
+            raise RuntimeError(
+                "Cannot adopt this database automatically — these columns need a manual "
+                f"migration first: {', '.join(skipped)}. "
+                "Add them (any value is fine for existing rows), then restart."
+            )
+        command.stamp(cfg, "head")
+    else:
+        command.upgrade(cfg, "head")
 
     # Seed the canonical service taxonomy (idempotent).
     from orchestrator import taxonomy
