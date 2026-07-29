@@ -1,6 +1,6 @@
 """B1 tenant registry + B2 provisioning + lifecycle (suspend/resume/decommission)."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -123,13 +123,46 @@ def get_tenant(
 @router.post("/{tenant_id}/provision", response_model=ProvisionJobOut)
 def provision_tenant(
     tenant_id: str,
+    response: Response,
     db: Session = Depends(get_db),
     actor: str = Depends(require_operator),
 ):
+    """Enqueue a provisioning run and return its job immediately (202).
+
+    The pipeline shells out to docker compose and can take minutes; running it
+    inline meant a proxy or browser timeout dropped the operator mid-run with no
+    way to tell whether the town had been built. Poll
+    ``GET /api/tenants/{id}/jobs`` for progress — every step reports itself.
+    """
+    from orchestrator import jobs
+    from orchestrator.db import SessionLocal
+    from orchestrator.models import ProvisionJob
+
     tenant = _get_tenant(db, tenant_id)
     if tenant.status == TenantStatus.DECOMMISSIONED:
         raise HTTPException(409, "Tenant is decommissioned")
-    return provisioner.run_provision(db, tenant, actor)
+    if jobs.is_running(f"provision:{tenant_id}"):
+        raise HTTPException(409, "A provisioning run is already in flight for this town")
+
+    job = ProvisionJob(tenant_id=tenant.id, status="queued")
+    db.add(job)
+    audit.record(db, actor, "tenant.provision.queued", tenant.id, job_id=job.id)
+    db.commit()
+    db.refresh(job)
+    job_id = job.id
+
+    def _work():
+        # The request's session is gone by now; the run gets its own.
+        with SessionLocal() as session:
+            queued = session.get(ProvisionJob, job_id)
+            target = session.get(Tenant, tenant_id)
+            provisioner.run_provision(session, target, actor, job=queued)
+
+    if not jobs.submit(f"provision:{tenant_id}", _work):
+        raise HTTPException(409, "A provisioning run is already in flight for this town")
+
+    response.status_code = 202
+    return job
 
 
 @router.get("/{tenant_id}/setup-credential")

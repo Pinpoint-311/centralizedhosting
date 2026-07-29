@@ -336,12 +336,19 @@ PIPELINE = [
 ]
 
 
-def run_provision(db: Session, tenant: Tenant, actor: str, ctx: dict | None = None) -> ProvisionJob:
+def run_provision(db: Session, tenant: Tenant, actor: str, ctx: dict | None = None,
+                  job: ProvisionJob | None = None) -> ProvisionJob:
     """Run the full pipeline. Safe to re-run after a failure — completed work
-    is detected and skipped."""
+    is detected and skipped.
+
+    ``job`` adopts a row created earlier (the API enqueues one so the operator
+    gets an id immediately); omit it to create one inline.
+    """
     ctx = ctx or {}
-    job = ProvisionJob(tenant_id=tenant.id)
-    db.add(job)
+    if job is None:
+        job = ProvisionJob(tenant_id=tenant.id)
+        db.add(job)
+    job.status = "running"
     db.flush()
     tenant.status = TenantStatus.PROVISIONING
     audit.record(db, actor, "tenant.provision.started", tenant.id, job_id=job.id)

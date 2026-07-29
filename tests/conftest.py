@@ -48,6 +48,18 @@ def make_tenant(client, slug="springfield", name="Springfield, IL", **extra):
 
 
 def provision(client, tenant_id):
+    """Provision and wait for the run to finish.
+
+    Provisioning is enqueued and executed on a background thread (it shells out
+    to compose and can take minutes in production), so the API answers 202 with
+    a job. Tests exercise that real path and then block on the job rather than
+    running a synchronous variant that production never uses.
+    """
+    from orchestrator import jobs
+
     resp = client.post(f"/api/tenants/{tenant_id}/provision", headers=HEADERS)
-    assert resp.status_code == 200, resp.text
-    return resp.json()
+    assert resp.status_code == 202, resp.text
+    assert jobs.wait(f"provision:{tenant_id}"), "provisioning did not finish in time"
+    jobs_resp = client.get(f"/api/tenants/{tenant_id}/jobs", headers=HEADERS)
+    assert jobs_resp.status_code == 200, jobs_resp.text
+    return jobs_resp.json()[0]

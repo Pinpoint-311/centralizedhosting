@@ -129,7 +129,7 @@ export function TownDetail() {
           {can('operator') && !['decommissioned', 'offline', 'migrating', 'migrated'].includes(tenant.status) && (
             <Button
               onClick={() =>
-                act('provision', () => api.provision(tenant.id), 'Provisioning run complete')
+                act('provision', () => api.provision(tenant.id), 'Provisioning started — watch progress on the Provisioning tab')
               }
               isLoading={busy === 'provision'}
               leftIcon={<Rocket className="w-4 h-4" />}
@@ -703,12 +703,26 @@ function Provisioning({ tenant }: { tenant: Tenant }) {
   const toast = useToast()
   const [jobs, setJobs] = useState<ProvisionJob[]>([])
   const [loading, setLoading] = useState(true)
+  // Provisioning runs in the background, so poll while a run is in flight —
+  // the steps land one at a time and the operator should watch them arrive.
   useEffect(() => {
-    api
-      .listJobs(tenant.id)
-      .then(setJobs)
-      .catch((e) => toast.push((e as Error).message, 'error'))
-      .finally(() => setLoading(false))
+    let stop = false
+    let timer: ReturnType<typeof setTimeout>
+    const tick = async () => {
+      try {
+        const rows = await api.listJobs(tenant.id)
+        if (stop) return
+        setJobs(rows)
+        const live = rows.some((j) => j.status === 'queued' || j.status === 'running')
+        if (live) timer = setTimeout(tick, 2000)
+      } catch (e) {
+        if (!stop) toast.push((e as Error).message, 'error')
+      } finally {
+        if (!stop) setLoading(false)
+      }
+    }
+    tick()
+    return () => { stop = true; clearTimeout(timer) }
   }, [tenant.id])
 
   if (loading) return <Spinner />
