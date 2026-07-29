@@ -129,6 +129,8 @@ def system_config(_: str = Depends(require_operator)):
     intervals — System Health owns those, and showing them twice invites the
     two views to disagree.
     """
+    import os as _os
+
     from orchestrator import encryption
 
     s = settings
@@ -158,7 +160,9 @@ def system_config(_: str = Depends(require_operator)):
         ),
         _posture_control(
             "rate_limit", "API rate limiting", s.rate_limit_rpm > 0, "warning",
-            f"Requests are capped at {s.rate_limit_rpm}/min per client.",
+            f"Requests are capped at {s.rate_limit_rpm}/min per client."
+            + ("" if _os.getenv("REDIS_URL", "").strip() else
+               " Counters are per-process — set REDIS_URL before running multiple workers."),
             "The panel API accepts unlimited request rates from a single client.",
         ),
         _posture_control(

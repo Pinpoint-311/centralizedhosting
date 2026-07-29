@@ -215,6 +215,14 @@ def create_app() -> FastAPI:
     limiter = Limiter(key_func=get_remote_address,
                       default_limits=[f"{_settings.rate_limit_rpm}/minute"],
                       **_limiter_kwargs)
+    if not _redis_url:
+        import logging as _logging
+
+        _logging.getLogger(__name__).info(
+            "Rate limiting is per-process (no REDIS_URL). Correct for the "
+            "single-worker default; set REDIS_URL before running multiple "
+            "workers or replicas, or the effective ceiling multiplies by their count."
+        )
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(SlowAPIMiddleware)

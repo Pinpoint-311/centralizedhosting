@@ -58,6 +58,22 @@ def test_system_config_reports_deployment_and_security_posture(client):
     assert c["summary"]["warnings"] == sum(1 for p in c["posture"] if p["severity"] == "warning")
 
 
+def test_rate_limit_names_its_per_process_caveat(client, monkeypatch):
+    """Without REDIS_URL the ceiling is counted per process, so N workers allow
+    N times the configured rate. An operator reading "capped at 60/min" would
+    have no way to know that; the caveat belongs next to the number, not only
+    in the runbook."""
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    c = client.get("/api/system/config", headers=HEADERS).json()
+    control = next(p for p in c["posture"] if p["key"] == "rate_limit")
+    assert "REDIS_URL" in control["detail"]
+
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+    c = client.get("/api/system/config", headers=HEADERS).json()
+    control = next(p for p in c["posture"] if p["key"] == "rate_limit")
+    assert "REDIS_URL" not in control["detail"]  # shared counter, no caveat
+
+
 def test_dry_run_mode_is_called_out_not_buried(client):
     """APPLY_STACKS=false means provisioning renders files and starts nothing.
     A town then looks provisioned while nothing runs, so it has to read as a
