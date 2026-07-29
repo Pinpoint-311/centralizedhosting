@@ -38,15 +38,54 @@ AZURE_ENCRYPTED_PREFIX = "akv:"   # Azure Key Vault per-field (legacy)
 PII_V2_PREFIX = "pii2:"           # Envelope-encrypted (AES-256-GCM + KMS-wrapped DEK)
 
 
+# Resolved DB-backed config values (env always wins and is never cached here).
+# _kms_provider() runs on every envelope encrypt/decrypt, so the re-encrypt
+# sweep would otherwise open a session per row.
+_config_cache: dict[str, Optional[str]] = {}
+
+
 def _kms_provider() -> str:
     """Which KMS backend wraps the DEK: 'google' (default), 'azure', or 'aws'."""
     return (os.getenv("KMS_PROVIDER") or _get_config_sync("KMS_PROVIDER") or "google").strip().lower()
 
 
 def _get_config_sync(key_name: str) -> Optional[str]:
-    """Resolve a KMS/config value. The panel is env-configured (the app also
-    reads a DB fallback; the panel keeps it env-only), so this is os.getenv."""
-    return os.getenv(key_name)
+    """Resolve a KMS/config value: environment first, then the SystemSetting
+    store — the same env→DB precedence as the app's _get_config_sync, so a
+    cloud profile applied in the UI actually takes effect.
+
+    Only Fernet-scheme rows are decrypted here. Config is written on the Fernet
+    path precisely so this lookup can never re-enter the KMS envelope decrypt
+    path it is being called from (``_kms_provider`` → here → decrypt → …).
+    """
+    env = os.getenv(key_name)
+    if env:
+        return env
+    if key_name in _config_cache:
+        return _config_cache[key_name]
+    try:
+        from orchestrator.db import SessionLocal
+        from orchestrator.models import SystemSetting
+
+        with SessionLocal() as db:
+            row = db.get(SystemSetting, key_name)
+        value = None
+        if row and row.value_encrypted:
+            ciphertext = row.value_encrypted
+            # A KMS/vault-wrapped value would need a round trip through the very
+            # provider we are being asked to resolve — refuse rather than recurse.
+            if not (ciphertext.startswith(PII_V2_PREFIX) or ciphertext.startswith(AZURE_ENCRYPTED_PREFIX)):
+                value = decrypt(ciphertext)
+        _config_cache[key_name] = value
+        return value
+    except Exception:  # noqa: BLE001 — config lookup must never break encryption
+        return None
+
+
+def clear_config_cache() -> None:
+    """Drop the DB-backed config cache. Called whenever the stored provider
+    selection changes, so a newly applied cloud profile takes effect at once."""
+    _config_cache.clear()
 
 
 def _kms_required() -> bool:

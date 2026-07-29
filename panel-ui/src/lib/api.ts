@@ -190,8 +190,8 @@ export const api = {
   updateUser: (id: number, body: Partial<{ email: string; full_name: string; is_active: boolean }>) =>
     req<PanelUser>('PUT', `/api/users/${id}`, body),
   deleteUser: (id: number) => req<void>('DELETE', `/api/users/${id}`),
-  setUserPassword: (id: number, password: string) =>
-    req<PanelUser>('POST', `/api/users/${id}/set-password`, { password }),
+  resetUserPassword: (id: number, password: string) =>
+    req<PanelUser>('POST', `/api/users/${id}/reset-password`, { password }),
 
   // hosting-provider admin (branding, organization, system, operators)
   getPlatformConfig: () => req<PlatformConfig>('GET', '/api/platform/config'),

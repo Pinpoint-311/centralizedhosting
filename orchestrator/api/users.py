@@ -71,13 +71,22 @@ def list_users(db: Session = Depends(get_db), _: str = Depends(require_admin)):
 
 @router.post("/users", status_code=201)
 def create_user(body: UserCreate, db: Session = Depends(get_db), actor: str = Depends(require_admin)):
+    """Create a new user (admin only).
+
+    Users are created with email as their identifier. They will log in via SSO
+    using their email address. No password is required as authentication is
+    handled by the identity provider — one can be set later for break-fix.
+    """
     uname = body.username.strip()
     email = body.email.strip().lower()
+    # Same status + wording as the app's create_user.
     if db.execute(select(User).where(func.lower(User.username) == uname.lower())).scalar_one_or_none():
-        raise HTTPException(409, "Username already exists")
+        raise HTTPException(400, "Username already exists")
     if db.execute(select(User).where(func.lower(User.email) == email)).scalar_one_or_none():
-        raise HTTPException(409, "Email already exists")
-    user = User(username=uname, email=email, full_name=(body.full_name or None), role="admin", is_active=True)
+        raise HTTPException(400, "Email already exists")
+    user = User(username=uname, email=email, full_name=(body.full_name or None),
+                hashed_password=None,  # No password for SSO users
+                role="admin", is_active=True)
     db.add(user)
     audit.record(db, actor, "user.created", uname, email=email)
     db.commit()
@@ -113,22 +122,29 @@ def update_user(user_id: int, body: UserUpdate, db: Session = Depends(get_db),
 @router.delete("/users/{user_id}", status_code=204)
 def delete_user(user_id: int, request: Request, db: Session = Depends(get_db),
                 actor: str = Depends(require_admin)):
+    """Delete user (admin only)."""
+    # Self-check by id first, as the app does. Comparing ids (not usernames)
+    # matters here: a machine caller authenticated by X-Panel-Token has no User
+    # row, so there is no account of its own to protect.
+    current = user_auth.user_from_request(request, db)
+    if current is not None and current.id == user_id:
+        raise HTTPException(400, "Cannot delete yourself")
+
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(404, "User not found")
-    if user.username == actor:
-        raise HTTPException(400, "You can't delete your own account")
     db.delete(user)
     audit.record(db, actor, "user.deleted", user.username)
     db.commit()
 
 
-@router.post("/users/{user_id}/set-password")
-def set_password(user_id: int, body: PasswordSet, db: Session = Depends(get_db),
+@router.post("/users/{user_id}/reset-password")
+def reset_password(user_id: int, body: PasswordSet, db: Session = Depends(get_db),
                  actor: str = Depends(require_admin)):
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(404, "User not found")
+    """Reset user password (admin only)."""
     user.hashed_password = user_auth.get_password_hash(body.password)
     audit.record(db, actor, "user.password_set", user.username)
     db.commit()

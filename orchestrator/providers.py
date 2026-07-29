@@ -207,13 +207,25 @@ def get_setting(db: Session, key: str) -> str | None:
     if not row:
         return None
     try:
+        # decrypt_value reads every scheme the panel has written (pii2:, akv:,
+        # v<n>:, plain Fernet), so older rows keep working.
         return decrypt_value(row.value_encrypted)
     except Exception:  # noqa: BLE001
         return None
 
 
 def set_setting(db: Session, key: str, value: str, is_secret: bool = False) -> None:
-    enc = encrypt_value(value)
+    """Persist a config/credential value — the app's _persist_secret path.
+
+    Writes use plain Fernet (``encryption.encrypt``), matching the app, rather
+    than the KMS envelope. That is deliberate and load-bearing: ``KMS_PROVIDER``
+    itself lives in this store, and resolving it must never require a KMS round
+    trip — envelope-encrypting it would make ``_kms_provider()`` recurse into
+    its own decrypt path.
+    """
+    from orchestrator import encryption
+
+    enc = encryption.encrypt(value)
     row = db.get(SystemSetting, key)
     if row:
         row.value_encrypted = enc
@@ -221,6 +233,21 @@ def set_setting(db: Session, key: str, value: str, is_secret: bool = False) -> N
         row.updated_at = utcnow()
     else:
         db.add(SystemSetting(key_name=key, value_encrypted=enc, is_secret=is_secret))
+
+
+def secrets_provider() -> str:
+    """Which secret store backs the panel — the app's _secrets_provider()."""
+    import os
+
+    val = os.getenv("SECRETS_PROVIDER")
+    if val:
+        return val.strip().lower()
+    try:
+        from orchestrator.encryption import _get_config_sync
+
+        return (_get_config_sync("SECRETS_PROVIDER") or "google").strip().lower()
+    except Exception:  # noqa: BLE001
+        return "google"
 
 
 # ---------------------------------------------------------------- catalog helpers
@@ -273,106 +300,220 @@ def catalog_for_api(db: Session, capability: str) -> dict:
     }
 
 
-def save_provider(db: Session, capability: str, provider: str, model: str | None, credentials: dict) -> None:
+def save_provider(db: Session, capability: str, provider: str, model: str | None, settings: dict) -> str:
+    """Select a provider for a capability and save its settings/secrets.
+    Blank values are ignored (existing secret kept). Ported from the app's
+    save_provider, including its validation — a bad key or model is rejected,
+    never silently dropped.
+    """
     cat = CATALOGS[capability]
-    if provider not in cat:
+    provider_id = (provider or "").strip().lower()
+    if provider_id not in cat:
         raise ValueError(f"Unknown {capability} provider: {provider}")
-    set_setting(db, SELECTOR_KEY[capability], provider, is_secret=False)
+
+    # Only the credential keys this provider's catalog declares may be written
+    # through this endpoint — it must not become an arbitrary secret writer.
+    allowed_keys = {f["key"] for f in cat[provider_id].get("credential_fields", [])}
+    unknown = [k for k in (settings or {}) if k not in allowed_keys]
+    if unknown:
+        raise ValueError(f"Unexpected settings for {provider_id}: {', '.join(sorted(unknown))}")
+
     if capability == "ai" and model:
-        if model in {m["id"] for m in cat[provider]["models"]}:
-            set_setting(db, MODEL_KEY, model, is_secret=False)
-    fields = {f["key"]: f for f in cat[provider]["credential_fields"]}
-    for key, val in (credentials or {}).items():
-        if key in fields and str(val).strip():
-            set_setting(db, key, str(val).strip(), is_secret=bool(fields[key].get("secret")))
+        allowed_models = {m["id"] for m in cat[provider_id].get("models", [])}
+        if allowed_models and model not in allowed_models:
+            raise ValueError(f"Unknown model for {provider_id}: {model}")
+
+    set_setting(db, SELECTOR_KEY[capability], provider_id)
+    if capability == "ai" and model:
+        set_setting(db, MODEL_KEY, model)
+    fields = {f["key"]: f for f in cat[provider_id]["credential_fields"]}
+    for key, value in (settings or {}).items():
+        if value and str(value).strip():  # blank = keep existing
+            set_setting(db, key, str(value).strip(), is_secret=bool(fields[key].get("secret")))
+    return provider_id
 
 
 def provider_status(db: Session, capability: str) -> dict:
-    """A light 'test': are the required (non-optional) credentials present?
-    Returns the app's {ok, detail} shape. The control plane doesn't carry the
-    cloud SDKs, so this verifies configuration rather than a live round-trip."""
+    """Connectivity check for the currently-configured provider — the app's
+    test_provider, ported. Returns {ok, detail}.
+
+    Identity is a genuine live check: OIDC discovery is plain HTTP and the panel
+    already speaks it, so this hits the issuer exactly as the app does. AI and
+    translation are verified as *configured* rather than called: the control
+    plane deliberately doesn't carry the Vertex/Bedrock/Azure SDKs (it brokers
+    credentials for towns, it doesn't run inference), so there is no adapter to
+    call. The detail text says which of the two happened, so an operator is
+    never told a key "works" when it was only present.
+    """
     provider = selected_provider(db, capability)
     meta = CATALOGS[capability].get(provider)
     if not meta:
-        return {"ok": False, "detail": "No provider selected."}
+        return {"ok": False, "detail": f"No {capability} provider is configured."}
+
     missing = [
         f["label"] for f in meta["credential_fields"]
         if "optional" not in f["label"].lower() and not get_setting(db, f["key"])
     ]
     if missing:
-        return {"ok": False, "detail": f"Missing credentials: {', '.join(missing)}."}
-    return {"ok": True, "detail": f"{meta['name']} is configured and ready."}
+        return {
+            "ok": False,
+            "detail": f"No {capability} provider is fully configured — missing: {', '.join(missing)}. "
+                      "Enter the required fields and save first.",
+        }
 
+    if capability == "identity":
+        # Live discovery, mirroring the app's identity test.
+        issuer = (
+            get_setting(db, "OIDC_ISSUER")
+            or get_setting(db, "OKTA_ISSUER")
+            or (f"https://{get_setting(db, 'AUTH0_DOMAIN')}" if get_setting(db, "AUTH0_DOMAIN") else None)
+            or (
+                f"{(get_setting(db, 'ENTRA_AUTHORITY') or 'https://login.microsoftonline.com').rstrip('/')}"
+                f"/{get_setting(db, 'ENTRA_TENANT_ID')}/v2.0"
+                if get_setting(db, "ENTRA_TENANT_ID") else None
+            )
+        )
+        if not issuer:
+            return {"ok": False, "detail": "No issuer configured for the selected identity provider."}
+        try:
+            from orchestrator import oidc
 
-def _components(db: Session) -> dict:
-    """The cloud components in play. Secrets/KMS come from the panel's own
-    secret manager configuration, not the provider store."""
-    from orchestrator.encryption import _kms_provider
+            meta_doc = oidc.discover(issuer)
+            ok = bool(meta_doc.get("authorization_endpoint"))
+            return {
+                "ok": ok,
+                "detail": f"Discovered {provider} endpoints at {issuer}" if ok
+                          else f"No authorization endpoint in the discovery document at {issuer}",
+            }
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "detail": f"Test failed: {str(e)[:200]}"}
 
-    try:
-        kms = _kms_provider()
-    except Exception:  # noqa: BLE001 — never let a config probe break the page
-        kms = "local"
     return {
-        "ai": selected_provider(db, "ai"),
-        "translation": selected_provider(db, "translation"),
-        "identity": selected_provider(db, "identity"),
-        "secrets": kms if kms in ("google", "azure", "aws") else "local",
-        "kms": kms,
-        "email": "",
-        "sms": "",
+        "ok": True,
+        "detail": f"{meta['name']} is configured (credentials stored). The control plane "
+                  "brokers these credentials to towns; it does not call the provider itself.",
     }
 
 
-def _derive_profile(components: dict) -> str:
-    """Which cloud profile the current selections correspond to, or 'mixed'."""
+def derive_cloud_profile(ai: str, translation: str, secrets: str, kms: str | None = None) -> str:
+    """Report which named profile the current core selections match, or 'mixed'.
+    Matches on the boundary-defining set (AI, translation, secret store, and KMS
+    when provided); email/SMS can legitimately differ and aren't part of the match.
+
+    Ported from the app's _derive_cloud_profile.
+    """
     for pid, p in CLOUD_PROFILES.items():
-        if p["ai"] == components["ai"] and p["translation"] == components["translation"]:
+        if ai == p["ai"] and translation == p["translation"] and secrets == p["secrets"]:
+            if kms is not None and kms != p["kms"]:
+                continue
             return pid
     return "mixed"
 
 
+def _kms_provider_safe() -> str:
+    from orchestrator.encryption import _kms_provider
+
+    try:
+        return _kms_provider()
+    except Exception:  # noqa: BLE001 — never let a config probe break the page
+        return "google"
+
+
 def cloud_profile_state(db: Session) -> dict:
-    """The app's CloudProfileState shape, verbatim."""
-    comps = _components(db)
+    """Current cloud environment — the app's get_cloud_profile, ported."""
+    ai = selected_provider(db, "ai")
+    translation = selected_provider(db, "translation")
+    identity = selected_provider(db, "identity")
+    email = get_setting(db, "EMAIL_PROVIDER") or "smtp"
+    sms = get_setting(db, "SMS_PROVIDER") or ""
+    secrets = secrets_provider()
+    kms = _kms_provider_safe()
     return {
-        "profile": _derive_profile(comps),
-        "managed": False,  # the control plane *is* the state; nobody manages it for us
-        "components": comps,
-        "maps": {"provider": "google", "locked": True, "label": "Google Maps"},
+        "profile": derive_cloud_profile(ai, translation, secrets, kms),
+        # The app locks this in managed (state-hosted) mode. The control plane
+        # *is* the state's hosting platform, so it is never managed from above.
+        "managed": False,
+        "components": {
+            "ai": ai, "translation": translation, "secrets": secrets, "kms": kms,
+            "identity": identity, "email": email, "sms": sms,
+        },
+        "maps": {"provider": "google", "locked": True, "label": "Google Maps (required)"},
         "profiles": [{"id": k, **v} for k, v in CLOUD_PROFILES.items()],
     }
 
 
 def apply_cloud_profile(db: Session, profile_id: str, apply_identity: bool = False) -> dict:
-    """Apply a cloud profile. Returns the app's CloudProfileResult shape."""
-    p = CLOUD_PROFILES.get(profile_id)
-    if not p:
-        raise ValueError("Unknown cloud profile")
+    """Apply a whole cloud environment in one choice — the app's set_cloud_profile.
+
+    Sets AI, translation, the secret store and KMS together, because those four
+    are what define the compliance boundary. Email/SMS are only written when the
+    cloud has a native option (Google has no first-party SMS, so an existing
+    Twilio selection survives a switch to the Google profile).
+    """
+    pid = (profile_id or "").strip().lower()
+    if pid not in CLOUD_PROFILES:
+        raise ValueError(f"Unknown cloud profile: {profile_id}")
+    p = CLOUD_PROFILES[pid]
+
     set_setting(db, SELECTOR_KEY["ai"], p["ai"])
     set_setting(db, SELECTOR_KEY["translation"], p["translation"])
+    set_setting(db, "SECRETS_PROVIDER", p["secrets"])
+    set_setting(db, "KMS_PROVIDER", p["kms"])
+    if p.get("email"):
+        set_setting(db, "EMAIL_PROVIDER", p["email"])
+    if p.get("sms"):
+        set_setting(db, "SMS_PROVIDER", p["sms"])
+
     identity_applied = False
     if apply_identity and p.get("identity_recommended"):
         set_setting(db, SELECTOR_KEY["identity"], p["identity_recommended"])
         identity_applied = True
 
-    comps = _components(db)
-    # Warn where the new boundary needs credentials that aren't entered yet.
-    warnings = []
+    warnings: list[str] = []
+    # Gov-readiness: flipping the secret store to a vault that isn't wired up yet
+    # is allowed (writes fall back to the encrypted DB), but say so plainly.
+    import os
+
+    if p["secrets"] == "azure":
+        if not (os.getenv("AZURE_KEY_VAULT_URL") or os.getenv("AZURE_KEYVAULT_URL")):
+            warnings.append(
+                "Azure Key Vault isn't configured yet — secrets stay in the encrypted "
+                "database until Key Vault credentials are added."
+            )
+    elif p["secrets"] == "google":
+        from orchestrator.encryption import _is_kms_available
+
+        try:
+            if not _is_kms_available():
+                warnings.append(
+                    "Google Secret Manager isn't reachable yet — secrets stay in the "
+                    "encrypted database until GOOGLE_CLOUD_PROJECT and credentials are set."
+                )
+        except Exception:  # noqa: BLE001
+            pass
+    elif p["secrets"] == "aws":
+        if not os.getenv("AWS_REGION"):
+            warnings.append(
+                "AWS Secrets Manager isn't configured yet (set AWS_REGION + credentials) — "
+                "secrets stay in the encrypted database until then."
+            )
+
+    # Control-plane addition: the boundary is only real once the newly selected
+    # providers actually have credentials, so name the ones still missing.
     for cap in ("ai", "translation"):
-        prov = comps[cap]
+        prov = p[cap]
         if not _provider_configured(db, cap, prov):
-            name = CATALOGS[cap][prov]["name"]
-            warnings.append(f"{name} has no credentials yet — add them below before it can be used.")
-    if comps["kms"] != "local" and comps["kms"] != p["kms"]:
-        warnings.append(
-            f"Secret encryption still uses {comps['kms']}; this profile expects {p['kms']}. "
-            "Change KMS_PROVIDER and re-encrypt to move the boundary."
-        )
+            warnings.append(
+                f"{CATALOGS[cap][prov]['name']} has no credentials yet — add them below before it can be used."
+            )
+
     return {
         "ok": True,
-        "profile": profile_id,
-        "components": comps,
+        "profile": pid,
+        "components": {
+            "ai": p["ai"], "translation": p["translation"], "secrets": p["secrets"],
+            "kms": p["kms"], "email": p["email"], "sms": p["sms"],
+        },
         "identity_recommended": p.get("identity_recommended", ""),
         "identity_applied": identity_applied,
         "warnings": warnings,

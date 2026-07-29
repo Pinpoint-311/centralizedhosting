@@ -36,13 +36,22 @@ class SaveProvider(BaseModel):
 @router.post("/{capability}/save")
 def save(capability: str, body: SaveProvider, db: Session = Depends(get_db),
          actor: str = Depends(require_admin)):
+    """Select a provider for a capability and save its settings/secrets.
+    Blank values are ignored (existing secret kept)."""
     try:
-        providers.save_provider(db, _cap(capability), body.provider, body.model, body.settings)
+        provider_id = providers.save_provider(
+            db, _cap(capability), body.provider, body.model, body.settings
+        )
     except ValueError as exc:
-        raise HTTPException(422, str(exc))
-    audit.record(db, actor, "provider.saved", capability, provider=body.provider)
+        raise HTTPException(400, str(exc))
+    audit.record(db, actor, "provider.saved", capability, provider=provider_id)
     db.commit()
-    return {"ok": True, "provider": body.provider}
+    # Selecting a provider can change the secret/KMS backend, so drop cached
+    # key material the way the app clears its secret-manager cache after a save.
+    from orchestrator import pii_crypto
+
+    pii_crypto.clear_caches()
+    return {"ok": True, "provider": provider_id}
 
 
 @router.post("/{capability}/test")
@@ -88,10 +97,17 @@ class ApplyProfile(BaseModel):
 @router.post("/cloud-profile")
 def set_cloud_profile(body: ApplyProfile, db: Session = Depends(get_db),
                       actor: str = Depends(require_admin)):
+    """Apply a whole cloud environment in one choice: sets the AI, translation,
+    secret-store and KMS providers to the profile's defaults."""
     try:
-        state = providers.apply_cloud_profile(db, body.profile, body.apply_identity)
+        result = providers.apply_cloud_profile(db, body.profile, body.apply_identity)
     except ValueError as exc:
-        raise HTTPException(422, str(exc))
-    audit.record(db, actor, "provider.cloud_profile_applied", body.profile)
+        raise HTTPException(400, str(exc))
+    audit.record(db, actor, "provider.cloud_profile_applied", result["profile"],
+                 identity_applied=result["identity_applied"])
     db.commit()
-    return state
+    # The secret store / KMS may have just changed underneath us.
+    from orchestrator import pii_crypto
+
+    pii_crypto.clear_caches()
+    return result

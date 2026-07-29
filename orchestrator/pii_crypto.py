@@ -234,3 +234,8 @@ def clear_caches() -> None:
         _active = None
         _unwrap_cache.clear()
         _plain_cache.clear()
+    # The stored KMS/secret-store selection may have changed too (applying a
+    # cloud profile writes it), so drop the resolved-config cache with it.
+    from orchestrator.encryption import clear_config_cache
+
+    clear_config_cache()

@@ -25,14 +25,31 @@ def test_token_holder_bootstraps_first_user(client):
 
 
 def test_duplicate_username_and_email_rejected(client):
+    # 400 + wording match the app's create_user.
     _create(client, "dup", "dup@example.gov")
-    assert _create(client, "dup", "other@example.gov").status_code == 409
-    assert _create(client, "other", "dup@example.gov").status_code == 409
+    r = _create(client, "dup", "other@example.gov")
+    assert r.status_code == 400 and r.json()["detail"] == "Username already exists"
+    r = _create(client, "other", "dup@example.gov")
+    assert r.status_code == 400 and r.json()["detail"] == "Email already exists"
+
+
+def test_cannot_delete_yourself(client):
+    """Self-delete is refused by id, as the app does — and a machine caller
+    (X-Panel-Token, no User row) has no account of its own to protect."""
+    uid = _create(client, "selfie").json()["id"]
+    client.post(f"/api/users/{uid}/reset-password", json={"password": "not-a-real-password"}, headers=HEADERS)
+    token = client.post("/api/auth/login",
+                        json={"username": "selfie", "password": "not-a-real-password"}).json()["access_token"]
+    bearer = {"Authorization": f"Bearer {token}"}
+    r = client.delete(f"/api/users/{uid}", headers=bearer)
+    assert r.status_code == 400 and r.json()["detail"] == "Cannot delete yourself"
+    # The same account can still be removed by another admin / the token holder.
+    assert client.delete(f"/api/users/{uid}", headers=HEADERS).status_code == 204
 
 
 def test_password_login_mints_jwt_that_authenticates(client):
     uid = _create(client, "loginuser").json()["id"]
-    client.post(f"/api/users/{uid}/set-password", json={"password": "not-a-real-password"}, headers=HEADERS)
+    client.post(f"/api/users/{uid}/reset-password", json={"password": "not-a-real-password"}, headers=HEADERS)
     r = client.post("/api/auth/login", json={"username": "loginuser", "password": "not-a-real-password"})
     assert r.status_code == 200, r.text
     token = r.json()["access_token"]
@@ -47,13 +64,13 @@ def test_wrong_password_and_no_password_rejected(client):
     uid = _create(client, "nopw").json()["id"]
     # No password set yet → cannot log in.
     assert client.post("/api/auth/login", json={"username": "nopw", "password": "x"}).status_code == 401
-    client.post(f"/api/users/{uid}/set-password", json={"password": "right-password-1234"}, headers=HEADERS)
+    client.post(f"/api/users/{uid}/reset-password", json={"password": "right-password-1234"}, headers=HEADERS)
     assert client.post("/api/auth/login", json={"username": "nopw", "password": "wrong"}).status_code == 401
 
 
 def test_deactivated_user_cannot_log_in(client):
     uid = _create(client, "gone").json()["id"]
-    client.post(f"/api/users/{uid}/set-password", json={"password": "temp-password-1234"}, headers=HEADERS)
+    client.post(f"/api/users/{uid}/reset-password", json={"password": "temp-password-1234"}, headers=HEADERS)
     client.put(f"/api/users/{uid}", json={"is_active": False}, headers=HEADERS)
     assert client.post("/api/auth/login", json={"username": "gone", "password": "temp-password-1234"}).status_code == 403
 

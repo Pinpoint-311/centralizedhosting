@@ -71,7 +71,7 @@ export function UsersPage() {
         if (!pwFor || password.length < 10) return
         setBusy(true)
         try {
-            await api.setUserPassword(pwFor.id as number, password)
+            await api.resetUserPassword(pwFor.id as number, password)
             toast.push(`Password set for ${pwFor.username}`)
             setPwFor(null)
             setPassword('')

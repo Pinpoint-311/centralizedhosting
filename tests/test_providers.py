@@ -51,10 +51,47 @@ def test_models_refresh_shape(client):
 
 
 def test_unknown_provider_rejected(client):
+    # 400, matching the app's save_provider.
     assert client.post("/api/providers/ai/save", json={"provider": "skynet", "settings": {}},
-                       headers=HEADERS).status_code == 422
+                       headers=HEADERS).status_code == 400
     assert client.post("/api/providers/ai/models/refresh", json={"provider": "skynet"},
                        headers=HEADERS).status_code == 422
+
+
+def test_save_is_not_an_arbitrary_secret_writer(client):
+    """The app rejects credential keys a provider's catalog doesn't declare, so
+    this endpoint can't be used to write any secret it likes. Ported behaviour:
+    reject loudly rather than silently dropping the key."""
+    r = client.post(
+        "/api/providers/ai/save",
+        json={"provider": "vertex", "settings": {"PANEL_API_TOKEN": "pwned"}},
+        headers=HEADERS,
+    )
+    assert r.status_code == 400 and "Unexpected settings" in r.json()["detail"]
+
+
+def test_save_rejects_a_model_the_provider_does_not_offer(client):
+    r = client.post(
+        "/api/providers/ai/save",
+        json={"provider": "vertex", "model": "gpt-4o", "settings": {}},
+        headers=HEADERS,
+    )
+    assert r.status_code == 400 and "Unknown model" in r.json()["detail"]
+
+
+def test_blank_value_keeps_the_existing_secret(client):
+    client.post("/api/providers/ai/save", json={"provider": "azure", "settings": {
+        "AZURE_OPENAI_ENDPOINT": "https://first.openai.azure.us",
+        "AZURE_OPENAI_API_KEY": "first-key",
+        "AZURE_OPENAI_DEPLOYMENT": "d",
+    }}, headers=HEADERS)
+    # Re-save with a blank key — the stored secret must survive.
+    client.post("/api/providers/ai/save", json={"provider": "azure", "settings": {
+        "AZURE_OPENAI_ENDPOINT": "https://second.openai.azure.us",
+        "AZURE_OPENAI_API_KEY": "",
+    }}, headers=HEADERS)
+    c = client.get("/api/providers/ai/catalog", headers=HEADERS).json()
+    assert c["configured"]["azure"] is True  # key still present, not wiped
 
 
 def test_cloud_profile_state_matches_app_contract(client):
@@ -66,18 +103,38 @@ def test_cloud_profile_state_matches_app_contract(client):
     assert {p["id"] for p in st["profiles"]} == {"google", "azure", "aws"}
 
 
-def test_apply_cloud_profile_switches_components_and_warns(client):
+def test_apply_cloud_profile_switches_the_whole_boundary(client):
     r = client.post("/api/providers/cloud-profile", json={"profile": "aws", "apply_identity": True},
                     headers=HEADERS).json()
     assert r["ok"] is True and r["profile"] == "aws" and r["identity_applied"] is True
-    assert r["components"]["ai"] == "bedrock" and r["components"]["translation"] == "aws"
-    assert r["components"]["identity"] == "oidc"
+    # The boundary-defining set moves together — not just AI/translation.
+    assert r["components"] == {"ai": "bedrock", "translation": "aws", "secrets": "aws",
+                               "kms": "aws", "email": "ses", "sms": "sns"}
+    assert r["identity_recommended"] == "oidc"
     # Switching to a boundary with no credentials entered warns rather than
     # silently leaving the fleet pointed at an unusable provider.
     assert any("credentials" in w for w in r["warnings"])
 
+    # And it actually takes effect: the persisted SECRETS_PROVIDER/KMS_PROVIDER
+    # are read back, so the state derives 'aws' rather than falling to 'mixed'.
+    st = client.get("/api/providers/cloud-profile", headers=HEADERS).json()
+    assert st["profile"] == "aws"
+    assert st["components"]["secrets"] == "aws" and st["components"]["kms"] == "aws"
+    assert st["components"]["identity"] == "oidc"
+
+
+def test_google_profile_leaves_sms_alone(client):
+    """Google has no first-party SMS, so an existing SMS choice must survive."""
+    client.post("/api/providers/cloud-profile", json={"profile": "aws"}, headers=HEADERS)
+    client.post("/api/providers/cloud-profile", json={"profile": "google"}, headers=HEADERS)
+    st = client.get("/api/providers/cloud-profile", headers=HEADERS).json()
+    assert st["components"]["email"] == "smtp"
+    assert st["components"]["sms"] == "sns"  # not clobbered by the google profile
+
 
 def test_mixed_profile_when_selections_do_not_match_a_cloud(client):
+    # Matching is on the boundary set (ai + translation + secrets [+ kms]), so a
+    # half-switched configuration reports 'mixed' rather than a false match.
     client.post("/api/providers/ai/save", json={"provider": "bedrock", "settings": {}}, headers=HEADERS)
     client.post("/api/providers/translation/save", json={"provider": "azure", "settings": {}}, headers=HEADERS)
     st = client.get("/api/providers/cloud-profile", headers=HEADERS).json()
