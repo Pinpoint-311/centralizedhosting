@@ -5,7 +5,7 @@ from orchestrator import rollout as engine
 from orchestrator import stack
 from orchestrator.config import settings
 from orchestrator.models import Release, Rollout, Tenant
-from tests.conftest import HEADERS, make_tenant, provision
+from tests.conftest import HEADERS, promote_rollout, start_rollout, make_tenant, provision
 
 
 def _publish(client, version="1.4.0", **extra):
@@ -43,20 +43,15 @@ def test_dry_run_rollout_canary_then_promote(client):
     release = _publish(client)
     _fleet(client, 3)
 
-    resp = client.post(
-        "/api/rollouts", json={"release_id": release["id"], "canary_count": 1}, headers=HEADERS
-    )
-    assert resp.status_code == 201, resp.text
-    body = resp.json()
+    body = start_rollout(client, release["id"], canary_count=1)
     assert body["status"] == "canary_passed"
     phases = {s["phase"] for s in body["steps"]}
     assert phases == {"canary", "fleet"}
     assert [s["status"] for s in body["steps"] if s["phase"] == "canary"] == ["unverified"]
     assert all(s["status"] == "pending" for s in body["steps"] if s["phase"] == "fleet")
 
-    promoted = client.post(f"/api/rollouts/{body['id']}/promote", headers=HEADERS)
-    assert promoted.status_code == 200
-    assert promoted.json()["status"] == "completed"
+    promoted = promote_rollout(client, body["id"])
+    assert promoted["status"] == "completed"
 
     # every town now targets the new version
     for t in client.get("/api/tenants", headers=HEADERS).json():
@@ -67,7 +62,10 @@ def test_only_one_rollout_in_flight(client):
     release = _publish(client)
     _fleet(client, 2)
     first = client.post("/api/rollouts", json={"release_id": release["id"]}, headers=HEADERS)
-    assert first.status_code == 201
+    from orchestrator import jobs
+
+    assert first.status_code == 202
+    jobs.wait(f"rollout:{first.json()['id']}")
     second = client.post("/api/rollouts", json={"release_id": release["id"]}, headers=HEADERS)
     assert second.status_code == 409
 
@@ -75,9 +73,12 @@ def test_only_one_rollout_in_flight(client):
 def test_promote_requires_canary_passed(client):
     release = _publish(client)
     _fleet(client, 2)
+    from orchestrator import jobs
+
     body = client.post(
         "/api/rollouts", json={"release_id": release["id"]}, headers=HEADERS
     ).json()
+    jobs.wait(f"rollout:{body['id']}")
     client.post(f"/api/rollouts/{body['id']}/rollback", headers=HEADERS)
     resp = client.post(f"/api/rollouts/{body['id']}/promote", headers=HEADERS)
     assert resp.status_code == 409
@@ -165,6 +166,9 @@ def test_preflight_blocks_incompatible_db_revision(client, db, monkeypatch):
 def test_rollout_lifecycle_is_audited(client):
     release = _publish(client)
     _fleet(client, 1)
-    client.post("/api/rollouts", json={"release_id": release["id"]}, headers=HEADERS)
+    from orchestrator import jobs
+
+    r = client.post("/api/rollouts", json={"release_id": release["id"]}, headers=HEADERS)
+    jobs.wait(f"rollout:{r.json()['id']}")
     actions = {e["action"] for e in client.get("/api/audit", headers=HEADERS).json()}
     assert {"release.published", "rollout.canary_started", "rollout.canary_passed"} <= actions

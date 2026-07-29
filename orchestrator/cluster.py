@@ -69,3 +69,10 @@ def release(db: Session, name: str) -> None:
             db.commit()
     except Exception:  # noqa: BLE001 — shutdown must not raise
         db.rollback()
+
+
+def is_held(db: Session, name: str) -> bool:
+    """True if a live (unexpired) lease exists, whoever owns it. Used to answer
+    'is this already running somewhere?' across processes."""
+    row = db.get(ClusterLock, name)
+    return row is not None and row.expires_at >= utcnow()

@@ -77,3 +77,35 @@ def test_wait_reports_timeout_rather_than_hanging(client):
     finally:
         release.set()
         jobs.wait(key)
+
+
+def test_the_guard_is_a_shared_lease_not_process_memory(client, db):
+    """The point of the database lease: a SECOND WORKER — a process with no
+    in-memory record of the run — must still be refused. With the old
+    in-process set, two workers would each happily start the same town."""
+    from orchestrator import cluster, jobs
+
+    tenant = make_tenant(client, slug="two-workers")
+    key = f"provision:{tenant['id']}"
+    release = threading.Event()
+    assert jobs.submit(key, release.wait)
+    try:
+        # is_locked reads the shared lease, which is what the API checks.
+        assert jobs.is_locked(key) is True
+
+        # Stand in for another process: different instance id, no local state.
+        original = cluster.instance_id
+        cluster.instance_id = lambda: "other-worker:999"
+        try:
+            assert jobs.is_running(key) is True   # this process knows it is busy
+            assert jobs.submit(key, lambda: None) is False  # the other one is refused
+        finally:
+            cluster.instance_id = original
+
+        r = client.post(f"/api/tenants/{tenant['id']}/provision", headers=HEADERS)
+        assert r.status_code == 409
+    finally:
+        release.set()
+        jobs.wait(key)
+
+    assert jobs.is_locked(key) is False  # lease handed back when the run ended

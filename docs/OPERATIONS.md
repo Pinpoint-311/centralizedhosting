@@ -37,13 +37,18 @@ Before adding `--workers` or a second replica, know what each piece needs:
 | OIDC login state | `login_states` table | Yes |
 | Periodic loops (telemetry, alerts, backups) | `cluster_locks` lease | Yes — one holder runs each pass, failover within one TTL |
 | Rate limiting | SlowAPI, in-memory by default | **Only with `REDIS_URL`** — otherwise the ceiling is per process, so N workers allow N× the configured rate |
-| Provisioning concurrency guard | in-process (`jobs.py`) | **No** — two processes could start the same town; needs a DB lock first |
+| Provisioning / rollout concurrency | `cluster_locks` lease (`jobs.py`) | Yes — the lease is renewed while a job runs and released when it ends; a crashed worker frees the town within one TTL |
 
 ## Provisioning
 
 Runs in the background. `POST /api/tenants/{id}/provision` returns **202** with
 a job; poll `GET /api/tenants/{id}/jobs` for step-by-step progress. A second run
-against a town that is already provisioning is refused with 409.
+against a town that is already provisioning is refused with 409 — the guard is a
+database lease, so this holds across workers, not just within one process.
+
+Rollouts work the same way: `POST /api/rollouts` and
+`POST /api/rollouts/{id}/promote` return **202** and advance in the background;
+poll `GET /api/rollouts`. Only one rollout is in flight fleet-wide at a time.
 
 The pipeline is idempotent — every step checks world state first and reports
 `skipped`. Re-running after a failure is the normal repair path.

@@ -29,17 +29,34 @@ export function Releases() {
     setReleases(r)
     setRollouts(ro)
   }
+  // Rollouts run in the background, a wave at a time, so poll while one is
+  // mid-flight instead of showing a status frozen at the moment of the click.
   useEffect(() => {
-    load()
-      .catch((e) => toast.push((e as Error).message, 'error'))
-      .finally(() => setLoading(false))
+    let stop = false
+    let timer: ReturnType<typeof setTimeout>
+    const IN_FLIGHT = ['pending', 'canary', 'promoting']
+    const tick = async () => {
+      try {
+        await load()
+      } catch (e) {
+        if (!stop) toast.push((e as Error).message, 'error')
+      } finally {
+        if (!stop) setLoading(false)
+      }
+      if (stop) return
+      const live = (await api.listRollouts().catch(() => []))
+        .some((r) => IN_FLIGHT.includes(r.status))
+      if (live && !stop) timer = setTimeout(tick, 2000)
+    }
+    tick()
+    return () => { stop = true; clearTimeout(timer) }
   }, [])
 
   async function startRollout(releaseId: string) {
     setBusy(releaseId)
     try {
-      const r = await api.startRollout({ release_id: releaseId })
-      toast.push(`Canary ${r.status.replace('_', ' ')}`)
+      await api.startRollout({ release_id: releaseId })
+      toast.push('Canary started — this page updates as it progresses')
       await load()
     } catch (e) {
       toast.push((e as Error).message, 'error')
@@ -51,7 +68,7 @@ export function Releases() {
     setBusy(id)
     try {
       await api.promoteRollout(id)
-      toast.push('Rollout promoted to all municipalities')
+      toast.push('Promoting to the rest of the fleet — this page updates as it progresses')
       await load()
     } catch (e) {
       toast.push((e as Error).message, 'error')

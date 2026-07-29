@@ -141,7 +141,9 @@ def provision_tenant(
     tenant = _get_tenant(db, tenant_id)
     if tenant.status == TenantStatus.DECOMMISSIONED:
         raise HTTPException(409, "Tenant is decommissioned")
-    if jobs.is_running(f"provision:{tenant_id}"):
+    # Checked against the shared lease, so a second worker can't start a
+    # parallel run against the same town.
+    if jobs.is_locked(f"provision:{tenant_id}"):
         raise HTTPException(409, "A provisioning run is already in flight for this town")
 
     job = ProvisionJob(tenant_id=tenant.id, status="queued")

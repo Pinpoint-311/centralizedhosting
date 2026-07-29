@@ -63,3 +63,27 @@ def provision(client, tenant_id):
     jobs_resp = client.get(f"/api/tenants/{tenant_id}/jobs", headers=HEADERS)
     assert jobs_resp.status_code == 200, jobs_resp.text
     return jobs_resp.json()[0]
+
+
+def start_rollout(client, release_id, **body):
+    """Start a rollout and wait for the canary phase to finish.
+
+    Rollouts run on a background thread (each phase deploys to a whole wave), so
+    the API answers 202. Tests drive the real path and then block on the job.
+    """
+    from orchestrator import jobs
+
+    resp = client.post("/api/rollouts", json={"release_id": release_id, **body}, headers=HEADERS)
+    assert resp.status_code == 202, resp.text
+    rollout_id = resp.json()["id"]
+    assert jobs.wait(f"rollout:{rollout_id}"), "canary did not finish in time"
+    return client.get("/api/rollouts", headers=HEADERS).json()[0]
+
+
+def promote_rollout(client, rollout_id):
+    from orchestrator import jobs
+
+    resp = client.post(f"/api/rollouts/{rollout_id}/promote", headers=HEADERS)
+    assert resp.status_code == 202, resp.text
+    assert jobs.wait(f"rollout:{rollout_id}"), "promotion did not finish in time"
+    return next(r for r in client.get("/api/rollouts", headers=HEADERS).json() if r["id"] == rollout_id)
