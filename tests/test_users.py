@@ -5,10 +5,10 @@ bootstraps the first operators; they then log in (password here, SSO in prod)
 and their JWT bearer authenticates every route.
 """
 
-from tests.conftest import HEADERS
+from tests.conftest import HEADERS, TEST_PASSWORD, TEST_USERNAME
 
 
-def _create(client, username="test-operator", email=None):
+def _create(client, username=TEST_USERNAME, email=None):
     return client.post(
         "/api/users",
         json={"username": username, "email": email or f"{username}@example.gov", "full_name": "Op"},
@@ -37,9 +37,9 @@ def test_cannot_delete_yourself(client):
     """Self-delete is refused by id, as the app does — and a machine caller
     (X-Panel-Token, no User row) has no account of its own to protect."""
     uid = _create(client, "selfie").json()["id"]
-    client.post(f"/api/users/{uid}/reset-password", json={"password": "not-a-real-password"}, headers=HEADERS)
+    client.post(f"/api/users/{uid}/reset-password", json={"password": TEST_PASSWORD}, headers=HEADERS)
     token = client.post("/api/auth/login",
-                        json={"username": "selfie", "password": "not-a-real-password"}).json()["access_token"]
+                        json={"username": "selfie", "password": TEST_PASSWORD}).json()["access_token"]
     bearer = {"Authorization": f"Bearer {token}"}
     r = client.delete(f"/api/users/{uid}", headers=bearer)
     assert r.status_code == 400 and r.json()["detail"] == "Cannot delete yourself"
@@ -49,8 +49,8 @@ def test_cannot_delete_yourself(client):
 
 def test_password_login_mints_jwt_that_authenticates(client):
     uid = _create(client, "loginuser").json()["id"]
-    client.post(f"/api/users/{uid}/reset-password", json={"password": "not-a-real-password"}, headers=HEADERS)
-    r = client.post("/api/auth/login", json={"username": "loginuser", "password": "not-a-real-password"})
+    client.post(f"/api/users/{uid}/reset-password", json={"password": TEST_PASSWORD}, headers=HEADERS)
+    r = client.post("/api/auth/login", json={"username": "loginuser", "password": TEST_PASSWORD})
     assert r.status_code == 200, r.text
     token = r.json()["access_token"]
     bearer = {"Authorization": f"Bearer {token}"}

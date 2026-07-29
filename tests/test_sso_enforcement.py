@@ -7,10 +7,10 @@ must use SSO.
 """
 
 from orchestrator import oidc
-from tests.conftest import HEADERS
+from tests.conftest import HEADERS, TEST_PASSWORD, TEST_USERNAME
 
 
-def _make_user_with_password(client, username="test-operator", password="not-a-real-password"):
+def _make_user_with_password(client, username=TEST_USERNAME, password=TEST_PASSWORD):
     uid = client.post("/api/users", json={"username": username, "email": f"{username}@nj.gov"},
                       headers=HEADERS).json()["id"]
     client.post(f"/api/users/{uid}/reset-password", json={"password": password}, headers=HEADERS)
@@ -38,11 +38,11 @@ def test_status_before_and_after_configuring_an_idp(client):
 def test_password_login_works_only_until_an_idp_is_configured(client):
     _make_user_with_password(client)
     assert client.post("/api/auth/login",
-                       json={"username": "test-operator", "password": "not-a-real-password"}).status_code == 200
+                       json={"username": TEST_USERNAME, "password": TEST_PASSWORD}).status_code == 200
 
     _configure_entra(client)
 
-    r = client.post("/api/auth/login", json={"username": "test-operator", "password": "not-a-real-password"})
+    r = client.post("/api/auth/login", json={"username": TEST_USERNAME, "password": TEST_PASSWORD})
     assert r.status_code == 403 and "single sign-on is configured" in r.json()["detail"].lower()
 
 
@@ -56,7 +56,7 @@ def test_gate_is_presence_based_not_reachability_based(client):
         "OIDC_CLIENT_ID": "cid", "OIDC_CLIENT_SECRET": "sec",
     }}, headers=HEADERS)
 
-    r = client.post("/api/auth/login", json={"username": "gated", "password": "not-a-real-password"})
+    r = client.post("/api/auth/login", json={"username": "gated", "password": TEST_PASSWORD})
     assert r.status_code == 403
 
 
@@ -90,7 +90,7 @@ def test_partially_configured_provider_does_not_close_the_gate(client):
 
     assert client.get("/api/auth/status").json()["bootstrap_available"] is True
     assert client.post("/api/auth/login",
-                       json={"username": "partial", "password": "not-a-real-password"}).status_code == 200
+                       json={"username": "partial", "password": TEST_PASSWORD}).status_code == 200
 
 
 def test_machine_token_still_works_after_sso_is_enforced(client):

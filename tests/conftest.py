@@ -20,6 +20,12 @@ from orchestrator.main import app
 
 HEADERS = {"X-Panel-Token": "test-token"}
 
+# Synthetic sign-in fixtures. Deliberately not a real operator's username next
+# to a real-looking password — that pair reads as a leaked credential to secret
+# scanners, and a test suite shouldn't be teaching anyone that shape.
+TEST_USERNAME = "test-operator"
+TEST_PASSWORD = "not-a-real-password"
+
 
 @pytest.fixture()
 def client():

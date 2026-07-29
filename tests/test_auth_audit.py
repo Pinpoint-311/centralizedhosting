@@ -7,17 +7,17 @@ split for a deactivated user.
 
 from orchestrator import user_auth
 from orchestrator.models import User
-from tests.conftest import HEADERS
+from tests.conftest import HEADERS, TEST_PASSWORD, TEST_USERNAME
 
 
-def _user(client, username="test-operator", email=None, password="not-a-real-password"):
+def _user(client, username=TEST_USERNAME, email=None, password=TEST_PASSWORD):
     uid = client.post("/api/users", json={"username": username, "email": email or f"{username}@nj.gov"},
                       headers=HEADERS).json()["id"]
     client.post(f"/api/users/{uid}/reset-password", json={"password": password}, headers=HEADERS)
     return uid
 
 
-def _bearer(client, username="test-operator", password="not-a-real-password"):
+def _bearer(client, username=TEST_USERNAME, password=TEST_PASSWORD):
     token = client.post("/api/auth/login", json={"username": username, "password": password}).json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
 
@@ -64,7 +64,7 @@ def test_password_login_records_caller_origin(client):
     """Auth events carry ip/user-agent, as the app's do — the panel's audit log
     is the compliance artifact, and it's the first thing read after an incident."""
     _user(client, "origin")
-    client.post("/api/auth/login", json={"username": "origin", "password": "not-a-real-password"},
+    client.post("/api/auth/login", json={"username": "origin", "password": TEST_PASSWORD},
                 headers={"User-Agent": "pytest-agent/1.0"})
     entries = client.get("/api/audit", headers=HEADERS).json()
     login = next(e for e in entries if e["action"] == "user.login")
