@@ -10,8 +10,6 @@ generic OIDC). There is no separate federation editor: a second configurator
 for the same thing meant two screens could disagree about who signs people in.
 """
 
-import time
-
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
@@ -32,15 +30,37 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # never added, and lumping them together sends everyone hunting the wrong thing.
 SSO_DENY_REASONS = ("no_email", "not_provisioned", "account_disabled")
 
-# In-memory login-state store (single-process panel). state -> context + expiry.
-_pending: dict[str, dict] = {}
 _STATE_TTL = 600  # seconds
 
 
-def _sweep() -> None:
-    now = time.time()
-    for s in [s for s, v in _pending.items() if v["exp"] < now]:
-        _pending.pop(s, None)
+def _store_state(db: Session, state: str, nonce: str, verifier: str) -> None:
+    """Persist an in-flight sign-in and reap expired ones.
+
+    Stored in the database, not process memory, so /sso/login and /sso/callback
+    can be served by different workers.
+    """
+    from datetime import timedelta
+
+    from orchestrator.models import LoginState
+
+    now = utcnow()
+    db.query(LoginState).filter(LoginState.expires_at < now).delete()
+    db.add(LoginState(state=state, nonce=nonce, code_verifier=verifier,
+                      expires_at=now + timedelta(seconds=_STATE_TTL)))
+    db.commit()
+
+
+def _take_state(db: Session, state: str) -> dict | None:
+    """Consume a login state exactly once. Returns None if unknown or expired."""
+    from orchestrator.models import LoginState
+
+    row = db.get(LoginState, state) if state else None
+    if row is None:
+        return None
+    ctx = {"nonce": row.nonce, "verifier": row.code_verifier, "expired": row.expires_at < utcnow()}
+    db.delete(row)  # single use, whether or not it had expired
+    db.commit()
+    return None if ctx["expired"] else ctx
 
 
 def _redirect_uri(request: Request) -> str:
@@ -97,8 +117,7 @@ def sso_login(request: Request, db: Session = Depends(get_db)):
     state = pysecrets.token_urlsafe(24)
     nonce = pysecrets.token_urlsafe(24)
     verifier, challenge = oidc.make_pkce()
-    _sweep()
-    _pending[state] = {"nonce": nonce, "verifier": verifier, "exp": time.time() + _STATE_TTL}
+    _store_state(db, state, nonce, verifier)
     url = oidc.authorize_url(cfg, meta, _redirect_uri(request), state, nonce, challenge)
     return RedirectResponse(url, status_code=302)
 
@@ -109,8 +128,8 @@ def sso_callback(request: Request, db: Session = Depends(get_db),
     front = _frontend_base(request)
     if error:
         return RedirectResponse(f"{front}/?sso_error={error}", status_code=302)
-    ctx = _pending.pop(state, None)
-    if not ctx or ctx["exp"] < time.time():
+    ctx = _take_state(db, state)
+    if not ctx:
         return RedirectResponse(f"{front}/?sso_error=expired_state", status_code=302)
     cfg = oidc.effective_config(db)
     if not cfg:

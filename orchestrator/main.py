@@ -48,12 +48,15 @@ async def _lifespan(app: FastAPI):
     if settings.alert_poll_seconds and settings.alert_poll_seconds > 0:
         async def _alert_loop():
             from orchestrator.db import SessionLocal
-            from orchestrator import audit, insights
+            from orchestrator import audit, cluster, insights
 
             while True:
                 await asyncio.sleep(settings.alert_poll_seconds)
                 try:
                     with SessionLocal() as db:
+                        # Exactly one process runs this pass; see cluster.py.
+                        if not cluster.acquire(db, "alert_loop"):
+                            continue
                         insights.evaluate_alerts(db)
                         # Tamper-anchor the audit chain to stdout for off-host
                         # aggregation (uniform with the app's periodic anchor).
@@ -86,12 +89,16 @@ async def _lifespan(app: FastAPI):
 
     if settings.telemetry_poll_seconds and settings.telemetry_poll_seconds > 0:
         async def _telemetry_loop():
+            from orchestrator import cluster
             from orchestrator.db import SessionLocal
             from orchestrator.api.fleet import poll_all_telemetry
 
             while True:
                 await asyncio.sleep(settings.telemetry_poll_seconds)
                 try:
+                    with SessionLocal() as db:
+                        if not cluster.acquire(db, "telemetry_loop"):
+                            continue
                     # Poll in a worker thread so the blocking HTTP calls don't
                     # stall the event loop.
                     await asyncio.to_thread(_run_telemetry_poll, SessionLocal)
@@ -107,7 +114,7 @@ async def _lifespan(app: FastAPI):
     if settings.backups_enabled and settings.backup_poll_seconds and settings.backup_poll_seconds > 0:
         async def _backup_loop():
             from orchestrator.db import SessionLocal
-            from orchestrator import backups
+            from orchestrator import backups, cluster
 
             def _run(SessionLocal):
                 with SessionLocal() as db:
@@ -116,6 +123,10 @@ async def _lifespan(app: FastAPI):
             while True:
                 await asyncio.sleep(settings.backup_poll_seconds)
                 try:
+                    with SessionLocal() as db:
+                        # Without this every worker would back up every town.
+                        if not cluster.acquire(db, "backup_loop"):
+                            continue
                     # pg_basebackup is blocking + slow; keep it off the event loop.
                     await asyncio.to_thread(_run, SessionLocal)
                 except Exception:
@@ -127,6 +138,16 @@ async def _lifespan(app: FastAPI):
 
     for task in tasks:
         task.cancel()
+
+    # Hand the leases back so another process picks the work up at once rather
+    # than waiting out the TTL.
+    if tasks:
+        from orchestrator import cluster
+        from orchestrator.db import SessionLocal
+
+        with SessionLocal() as db:
+            for lease in ("alert_loop", "telemetry_loop", "backup_loop"):
+                cluster.release(db, lease)
 
 
 def _init_sentry() -> None:
@@ -187,8 +208,17 @@ def create_app() -> FastAPI:
     # tunes the per-minute ceiling.
     from orchestrator.config import settings as _settings
 
+    # Storage: in-memory means the ceiling is PER PROCESS, so N workers allow
+    # N times the configured rate. Set REDIS_URL to share one counter across
+    # workers and replicas; without it the panel must stay single-process for
+    # the limit to mean what it says.
+    import os as _os
+
+    _redis_url = _os.getenv("REDIS_URL", "").strip()
+    _limiter_kwargs = {"storage_uri": _redis_url} if _redis_url else {}
     limiter = Limiter(key_func=get_remote_address,
-                      default_limits=[f"{_settings.rate_limit_rpm}/minute"])
+                      default_limits=[f"{_settings.rate_limit_rpm}/minute"],
+                      **_limiter_kwargs)
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(SlowAPIMiddleware)

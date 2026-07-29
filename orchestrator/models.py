@@ -470,6 +470,40 @@ class FederationConfig(Base):
     updated_by: Mapped[str | None] = mapped_column(String(150), default=None)
 
 
+class LoginState(Base):
+    """One in-flight OIDC sign-in: the CSRF state, its nonce and PKCE verifier.
+
+    Kept in the database rather than process memory so the /sso/login and
+    /sso/callback halves of a sign-in can land on different workers. In memory
+    this worked only because the panel runs a single process — adding a worker
+    or a replica would have made sign-ins fail with "expired_state" roughly
+    (1 - 1/N) of the time, which is the kind of bug that only appears under load.
+    """
+
+    __tablename__ = "login_states"
+
+    state: Mapped[str] = mapped_column(String(64), primary_key=True)
+    nonce: Mapped[str] = mapped_column(String(64))
+    code_verifier: Mapped[str] = mapped_column(String(128))
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
+class ClusterLock(Base):
+    """A named lease, so exactly one process runs a periodic job.
+
+    The background loops (telemetry, alerts, backups) are started per process.
+    With more than one worker they would all fire — duplicate polls, duplicate
+    backups, duplicate uptime samples. A holder renews its lease; if it dies,
+    the lease expires and another process picks the work up.
+    """
+
+    __tablename__ = "cluster_locks"
+
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner: Mapped[str] = mapped_column(String(80))
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class UptimeRecord(Base):
     """Records health check results over time for uptime monitoring dashboard.
 
