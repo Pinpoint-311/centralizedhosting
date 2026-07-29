@@ -40,6 +40,13 @@ def create_tenant(
     if db.execute(select(Tenant).where(Tenant.slug == body.slug)).scalar_one_or_none():
         raise HTTPException(409, f"Tenant slug '{body.slug}' already exists")
     data = body.model_dump()
+    # A new town inherits the fleet-wide payer default set in Setup &
+    # Integration, unless this request states its own assignments.
+    if not data.get("key_assignments"):
+        from orchestrator.api.platform import get_config
+
+        cfg = get_config(db)
+        data["key_assignments"] = (cfg.default_key_assignments if cfg else None) or {}
     data["key_assignments"] = normalize_assignments(data.get("key_assignments"))
     data["managed_settings"] = managed_settings.defaults()
     tenant = Tenant(subdomain=body.slug, **data)

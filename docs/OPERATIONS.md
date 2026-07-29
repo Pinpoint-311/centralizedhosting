@@ -136,6 +136,53 @@ The durable fix is on the app side — make Alembic the only schema authority
 (a baseline revision that creates everything, `create_all` removed). Until then,
 every town provisioned by the current app needs one adoption.
 
+## Security controls (Setup → System Settings)
+
+The hardening controls are edited in the portal, not by rewriting a container's
+environment. **The portal is authoritative**: a value saved here overrides the
+environment variable of the same name. Environment variables still set the
+starting value at boot, so an untouched deployment behaves exactly as before.
+
+Two guardrails, because that authority is real:
+
+- **A control that cannot work is refused, not saved.** Requiring KMS with no
+  KMS configured would leave the panel unable to write a secret; enabling
+  signature verification with no `cosign` binary would fail every rollout. The
+  row shows locked with the reason instead.
+- **Weakening asks first.** Turning a protection off needs an explicit
+  confirmation and is written to the audit chain with the operator's name, the
+  previous value, and the new one (`system.control_changed`). Nothing is
+  blocked — an operator who means it can always proceed.
+
+| Control | Takes effect |
+| --- | --- |
+| Require cloud KMS, require signed images, verify signatures, backups, certificate monitoring, apply stacks, API rate limit | Immediately |
+| Web application firewall | Re-renders every active town's Caddy block and reloads the proxy — it's an action, not just a switch |
+
+Each worker re-reads stored values every 30s, so a change on one process reaches
+the others without a restart. That refresh is deliberately **not** leased: a
+lease would mean only the leader picked up a toggle while the rest kept
+enforcing the old posture.
+
+## Who pays for each service key (Setup → Integration)
+
+Every external service has one of three owners:
+
+| Owner | Meaning |
+| --- | --- |
+| `town` | The town brings its own key and is billed directly |
+| `state_shared` | One credential from your pool serves every town |
+| `state_per_town` | You supply a separate key per town, so spend and quotas stay attributable |
+
+The matrix here is the **default a newly added town inherits**. Saving it does
+not touch towns you already host — changing who pays for Maps across a live
+fleet is a billing event, not a settings change, so it has its own
+"Apply to all towns" action which names every town it moves in the audit log.
+
+Each row shows how many towns currently differ from the default, so a default
+that no longer reflects reality is visible rather than quietly wrong. Individual
+towns can still be overridden on their own page.
+
 ## APPLY_STACKS
 
 Defaults to `false`, which means provisioning **renders** compose files but never

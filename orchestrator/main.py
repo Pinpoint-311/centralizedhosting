@@ -44,6 +44,13 @@ async def _lifespan(app: FastAPI):
     init_db()
 
     from orchestrator.config import settings
+    from orchestrator.db import SessionLocal as _SessionLocal
+    from orchestrator import platform_settings
+
+    # Security controls are portal-authoritative, so stored values have to land
+    # on the settings object before any route or loop reads it.
+    with _SessionLocal() as _db:
+        platform_settings.apply(_db)
 
     tasks: list = []
     if settings.alert_poll_seconds and settings.alert_poll_seconds > 0:
@@ -160,6 +167,25 @@ async def _lifespan(app: FastAPI):
 
         tasks.append(asyncio.create_task(_upstream_loop()))
 
+    async def _controls_refresh_loop():
+        """Re-read portal-set controls on every worker.
+
+        Unleased on purpose: a lease would mean only one process picked up a
+        toggle, and the others would keep enforcing the old posture.
+        """
+        from orchestrator.db import SessionLocal
+        from orchestrator import platform_settings
+
+        while True:
+            await asyncio.sleep(30)
+            try:
+                with SessionLocal() as db:
+                    platform_settings.apply(db)
+            except Exception:
+                pass  # a transient DB blip must not kill the refresh
+
+    tasks.append(asyncio.create_task(_controls_refresh_loop()))
+
     yield
 
     for task in tasks:
@@ -242,8 +268,10 @@ def create_app() -> FastAPI:
 
     _redis_url = _os.getenv("REDIS_URL", "").strip()
     _limiter_kwargs = {"storage_uri": _redis_url} if _redis_url else {}
+    # A callable, not a fixed string: the ceiling is portal-editable, and it is
+    # re-read per request so a change takes effect without a restart.
     limiter = Limiter(key_func=get_remote_address,
-                      default_limits=[f"{_settings.rate_limit_rpm}/minute"],
+                      default_limits=[lambda: f"{_settings.rate_limit_rpm}/minute"],
                       **_limiter_kwargs)
     if not _redis_url:
         import logging as _logging

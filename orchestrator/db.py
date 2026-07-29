@@ -55,8 +55,17 @@ def _reconcile_added_columns() -> tuple[list[str], list[str]]:
                     continue
                 col_type = column.type.compile(engine.dialect)
                 default = getattr(column.default, "arg", None)
+                # A server_default is DDL the database applies itself, so it can
+                # backfill an existing row — the clearest signal the column is
+                # safe to add here rather than in a migration.
+                server_default = getattr(column.server_default, "arg", None)
+                if server_default is not None:
+                    server_default = str(getattr(server_default, "text", server_default))
                 if column.nullable:
                     ddl = f"ALTER TABLE {table.name} ADD COLUMN {column.name} {col_type}"
+                elif server_default is not None:
+                    ddl = (f"ALTER TABLE {table.name} ADD COLUMN {column.name} {col_type} "
+                           f"NOT NULL DEFAULT '{server_default}'")
                 elif isinstance(default, (str, int, float, bool)):
                     literal = f"'{default}'" if isinstance(default, str) else (
                         str(int(default)) if isinstance(default, bool) else str(default)

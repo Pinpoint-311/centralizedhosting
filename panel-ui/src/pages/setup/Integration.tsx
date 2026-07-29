@@ -6,6 +6,7 @@ import { Spinner } from '../../components/ui'
 import { useToast } from '../../components/Toast'
 import { ApiKeysHub } from '../Settings'
 import ServiceProviders from './ServiceProviders'
+import { KeyPayerDefaults } from '../../components/KeyPayerDefaults'
 
 export function Integration() {
   const toast = useToast()
@@ -28,11 +29,13 @@ export function Integration() {
           <Terminal className="w-6 h-6" /> Setup &amp; Integration
         </h1>
         <p className="text-white/50 text-sm mt-1">
-          Single sign-on and the shared API credentials this platform provides to the fleet.
+          Single sign-on, who pays for each service key, and the shared API credentials
+          this platform provides to the fleet.
         </p>
       </div>
 
       <ServiceProviders />
+      <KeyPayerDefaults />
       {!catalog ? <Spinner /> : <ApiKeysHub catalog={catalog} creds={creds} onChange={loadCreds} />}
     </div>
   )

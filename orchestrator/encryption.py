@@ -92,7 +92,11 @@ def _kms_required() -> bool:
     """When REQUIRE_KMS is set, secret encryption must wrap the DEK with a real
     cloud KMS — any fallback to the local PANEL_SECRET_KEY-derived key raises
     instead of silently downgrading."""
-    return os.getenv("REQUIRE_KMS", "").strip().lower() in ("1", "true", "yes", "on")
+    from orchestrator.config import settings
+
+    # Imported lazily: encryption is loaded very early, and the setting is
+    # portal-editable, so it must be read per call rather than captured once.
+    return bool(settings.require_kms)
 
 
 # --- local Fernet (legacy + no-KMS config path) ------------------------------

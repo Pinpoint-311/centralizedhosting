@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     # posture. Signature verification is available below via COSIGN_VERIFY.
     require_signed_images: bool = False
 
+    # Fail closed when a cloud KMS is unreachable rather than silently falling
+    # back to the local panel key. Read through encryption._kms_required(), and
+    # portal-editable like the other posture controls.
+    require_kms: bool = False
+
     # cosign signature verification. When true (and REQUIRE_SIGNED_IMAGES), the
     # provisioner runs `cosign verify` on each pinned image digest before deploy
     # and fails the run if a signature is missing/invalid. Keyless (Fulcio/Rekor)

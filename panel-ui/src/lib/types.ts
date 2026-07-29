@@ -606,3 +606,33 @@ export interface UpstreamStatus {
   fleet_drift: boolean
   pending: UpstreamCandidate | null
 }
+
+/** A security control the portal can change. */
+export interface SecurityControl {
+  key: string
+  label: string
+  type: 'bool' | 'int'
+  value: boolean | number
+  source: 'portal' | 'environment'
+  effect: 'live' | 'rerender' | 'restart'
+  confirm_on: boolean
+  confirm_off: boolean
+  can_enable: boolean
+  blocked_because: string
+}
+
+export interface AssignableService {
+  id: string
+  label: string
+  description: string
+  keys: string[]
+  default_owner: string
+}
+
+export interface KeyDefaults {
+  services: AssignableService[]
+  owners: string[]
+  defaults: Record<string, string>
+  drift: Record<string, number>
+  town_count: number
+}

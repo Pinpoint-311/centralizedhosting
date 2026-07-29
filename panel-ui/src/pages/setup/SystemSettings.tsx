@@ -186,9 +186,12 @@ export function SystemSettings() {
   const [busy, setBusy] = useState('')
   const [auditState, setAuditState] = useState('')
 
-  useEffect(() => {
+  // Re-read after a control changes: the posture summary (and every "what this
+  // exposes" line) is computed server-side from the new value.
+  const loadConfig = () =>
     api.systemConfig().then(setCfg).catch((e) => toast.push((e as Error).message, 'error'))
-  }, [])
+
+  useEffect(() => { loadConfig() }, [])
 
   async function verifyAudit() {
     setBusy('verify')

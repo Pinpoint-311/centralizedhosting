@@ -514,3 +514,167 @@ def operators(request: Request, db: Session = Depends(get_db), actor: str = Depe
         "sso_provider": (cfg.provider if cfg else None),
         "you": {"actor": actor, "role": resolve_role(request)},
     }
+
+
+# ---- Portal-controlled security posture -----------------------------------
+
+
+class ControlUpdate(BaseModel):
+    value: bool | int
+    confirm: bool = False
+
+
+@router.get("/system/controls")
+def list_controls(db: Session = Depends(get_db), _: str = Depends(require_operator)):
+    """Every security control, its value, and whether it could be turned on now.
+
+    `source` says whether the value came from the portal or the environment;
+    `blocked_because` explains why a control cannot be enabled yet, so the UI can
+    say "configure a KMS first" instead of offering a switch that would fail.
+    """
+    from orchestrator import platform_settings
+
+    return {"controls": platform_settings.describe(db)}
+
+
+@router.put("/system/controls/{key}")
+def set_control(
+    key: str,
+    body: ControlUpdate,
+    db: Session = Depends(get_db),
+    actor: str = Depends(require_operator),
+):
+    """Change one control. The portal is authoritative — a saved value overrides
+    the environment — so weakening a control needs `confirm` and is audited."""
+    from orchestrator import platform_settings
+
+    try:
+        result = platform_settings.set_control(db, key, body.value, actor, body.confirm)
+    except platform_settings.ControlError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+    if result["effect"] == "rerender":
+        result["rerender"] = _rerender_fleet_edge(db, actor)
+    return result
+
+
+def _rerender_fleet_edge(db: Session, actor: str) -> dict:
+    """Re-render every active town's stack and reload the front proxy.
+
+    The WAF and edge rate limits are baked into each town's Caddy site block, so
+    flipping them is not a setting that takes effect on its own — the files have
+    to be rewritten and the proxy told to re-read them.
+    """
+    from orchestrator import migrator, provisioner
+    from orchestrator.models import Tenant as _Tenant
+
+    towns = db.execute(
+        select(_Tenant).where(_Tenant.status == TenantStatus.ACTIVE)).scalars().all()
+    rendered, failed = 0, []
+    for town in towns:
+        try:
+            provisioner.render_for_tenant(db, town, town.target_version or "latest")
+            rendered += 1
+        except Exception as exc:  # noqa: BLE001 — report, don't abort the fleet
+            failed.append(f"{town.slug}: {exc}")
+    reload_detail = migrator.reload_edge_proxy()
+    audit.record(db, actor, "system.edge_rerendered", None,
+                 rendered=rendered, failed=len(failed))
+    db.commit()
+    return {"rendered": rendered, "failed": failed, "proxy_reload": reload_detail}
+
+
+# ---- Who provides (and pays for) each service key --------------------------
+
+
+class KeyDefaults(BaseModel):
+    assignments: dict[str, str]
+
+
+@router.get("/platform/key-defaults")
+def get_key_defaults(db: Session = Depends(get_db), _: str = Depends(require_panel_token)):
+    """The fleet-wide default for who supplies each service key, plus how many
+    towns currently differ from it."""
+    from orchestrator import key_catalog
+    from orchestrator.models import Tenant as _Tenant
+
+    cfg = get_config(db)
+    defaults = key_catalog.normalize_assignments(
+        (cfg.default_key_assignments if cfg else None) or {})
+
+    towns = db.execute(select(_Tenant).where(
+        _Tenant.status.notin_([TenantStatus.DECOMMISSIONED, TenantStatus.MIGRATED])
+    )).scalars().all()
+
+    drift: dict[str, int] = {}
+    for service_id, owner in defaults.items():
+        differing = sum(
+            1 for t in towns
+            if key_catalog.normalize_assignments(t.key_assignments).get(service_id) != owner
+        )
+        if differing:
+            drift[service_id] = differing
+
+    return {
+        "services": key_catalog.ASSIGNABLE_SERVICES,
+        "owners": list(key_catalog.OWNERS),
+        "defaults": defaults,
+        "drift": drift,
+        "town_count": len(towns),
+    }
+
+
+@router.put("/platform/key-defaults")
+def set_key_defaults(
+    body: KeyDefaults,
+    db: Session = Depends(get_db),
+    actor: str = Depends(require_operator),
+):
+    """Set the default new towns inherit. Deliberately does NOT touch existing
+    towns — changing who pays for Maps across a live fleet is a billing event,
+    not a settings change, so it has its own action below."""
+    from orchestrator import key_catalog
+
+    cfg = get_config(db)
+    if not cfg:
+        cfg = PlatformConfig(id="default")
+        db.add(cfg)
+    cfg.default_key_assignments = key_catalog.normalize_assignments(body.assignments)
+    audit.record(db, actor, "platform.key_defaults_set", None,
+                 assignments=cfg.default_key_assignments)
+    db.commit()
+    return {"defaults": cfg.default_key_assignments}
+
+
+@router.post("/platform/key-defaults/apply-to-all")
+def apply_key_defaults(
+    db: Session = Depends(get_db),
+    actor: str = Depends(require_operator),
+):
+    """Push the default onto every live town, overwriting per-town choices.
+
+    Separate from saving the default because this re-points real billing. Each
+    town that changes is named in the audit entry.
+    """
+    from orchestrator import key_catalog
+    from orchestrator.models import Tenant as _Tenant
+
+    cfg = get_config(db)
+    defaults = key_catalog.normalize_assignments(
+        (cfg.default_key_assignments if cfg else None) or {})
+
+    towns = db.execute(select(_Tenant).where(
+        _Tenant.status.notin_([TenantStatus.DECOMMISSIONED, TenantStatus.MIGRATED])
+    )).scalars().all()
+
+    changed = []
+    for town in towns:
+        current = key_catalog.normalize_assignments(town.key_assignments)
+        if current != defaults:
+            town.key_assignments = dict(defaults)
+            changed.append(town.slug)
+
+    audit.record(db, actor, "platform.key_defaults_applied", None,
+                 changed=changed, count=len(changed))
+    db.commit()
+    return {"changed": changed, "count": len(changed)}

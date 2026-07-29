@@ -470,6 +470,16 @@ class PlatformConfig(Base):
     retention_days_override: Mapped[int | None] = mapped_column(Integer, default=None)
     retention_mode: Mapped[str] = mapped_column(String(20), default="anonymize")  # anonymize|delete
 
+    # Fleet-wide default for who supplies (and therefore pays for) each external
+    # service key. New towns inherit this; existing towns keep whatever they
+    # have until an operator deliberately applies the default to them, because
+    # re-pointing forty towns' Maps billing is an event, not a settings change.
+    # server_default so the startup reconciler can add this to a pre-existing
+    # platform_config row; a Python-side default alone leaves it NOT NULL with
+    # nothing to backfill, and startup would (correctly) refuse to stamp head.
+    default_key_assignments: Mapped[dict] = mapped_column(
+        JSON, default=dict, server_default="{}")
+
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     updated_by: Mapped[str | None] = mapped_column(String(150), default=None)
 

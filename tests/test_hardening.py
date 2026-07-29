@@ -36,9 +36,14 @@ def test_require_kms_fails_closed_without_a_cloud_kms(client, monkeypatch):
     from orchestrator import pii_crypto
     from orchestrator.security import encrypt_value
 
+    from orchestrator.config import settings
+
     monkeypatch.setenv("KMS_PROVIDER", "google")
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
-    monkeypatch.setenv("REQUIRE_KMS", "true")
+    # REQUIRE_KMS is now a Settings field so the portal can own it. The env var
+    # still configures it, but at startup — mid-process it is the setting that
+    # is read, which is also what a portal toggle writes to.
+    monkeypatch.setattr(settings, "require_kms", True)
     pii_crypto.clear_caches()
 
     with pytest.raises(Exception):

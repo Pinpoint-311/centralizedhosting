@@ -33,6 +33,8 @@ import type {
   SystemHealth,
   Release,
   Rollout,
+  KeyDefaults,
+  SecurityControl,
   UpstreamCandidate,
   UpstreamStatus,
   SecretOut,
@@ -171,6 +173,17 @@ export const api = {
   startRollout: (body: Record<string, unknown>) => req<Rollout>('POST', '/api/rollouts', body),
   promoteRollout: (id: string) => req<Rollout>('POST', `/api/rollouts/${id}/promote`),
   rollbackRollout: (id: string) => req<Rollout>('POST', `/api/rollouts/${id}/rollback`),
+
+  listControls: () => req<{ controls: SecurityControl[] }>('GET', '/api/system/controls'),
+  setControl: (key: string, value: boolean | number, confirm = false) =>
+    req<{ key: string; value: boolean | number; effect: string; rerender?: { rendered: number } }>(
+      'PUT', `/api/system/controls/${key}`, { value, confirm }),
+
+  keyDefaults: () => req<KeyDefaults>('GET', '/api/platform/key-defaults'),
+  setKeyDefaults: (assignments: Record<string, string>) =>
+    req<{ defaults: Record<string, string> }>('PUT', '/api/platform/key-defaults', { assignments }),
+  applyKeyDefaults: () =>
+    req<{ changed: string[]; count: number }>('POST', '/api/platform/key-defaults/apply-to-all'),
 
   upstreamStatus: () => req<UpstreamStatus>('GET', '/api/upstream/status'),
   checkUpstream: () =>
